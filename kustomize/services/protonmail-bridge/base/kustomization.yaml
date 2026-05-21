@@ -13,5 +13,5 @@ resources:
   - service.yaml
 
 images:
-  - name: shenxn/protonmail-bridge
-    newTag: 3.19.0-build
+  - name: philanthropy-os/protonmail-bridge
+    newTag: v3.19.0

@@ -18,7 +18,9 @@ spec:
     spec:
       containers:
         - name: protonmail-bridge
-          image: shenxn/protonmail-bridge
+          image: philanthropy-os/protonmail-bridge
+          # Locally built image (see justfile build-protonmail-bridge); never pull from a registry.
+          imagePullPolicy: IfNotPresent
           # stdin/tty keep the container ready for the interactive `init`/`login`
           # flow (`kubectl exec ... -- /bin/bash`) described in the project docs.
           stdin: true

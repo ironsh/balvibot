@@ -4,7 +4,8 @@ Kubernetes manifests for the philanthropy-os services.
 
 ## Services
 
-- **protonmail-bridge** — runs [`shenxn/protonmail-bridge`](https://github.com/shenxn/protonmail-bridge-docker),
+- **protonmail-bridge** — locally built image (see `docker/protonmail-bridge/`,
+  ported from [`shenxn/protonmail-bridge-docker`](https://github.com/shenxn/protonmail-bridge-docker))
   exposing local SMTP (25) and IMAP (143) endpoints that proxy a ProtonMail
   account so cluster workloads can send/receive mail.
 - **hermes-agent** — runs [`nousresearch/hermes-agent`](https://hermes-agent.nousresearch.com/docs/user-guide/docker)
@@ -23,9 +24,21 @@ each service's `base` from the environment overlays.
 
 ## Deploy
 
+Build the protonmail-bridge image first (it's referenced by tag, not pulled):
+
+```sh
+just build-protonmail-bridge
+```
+
+Then apply the manifests:
+
 ```sh
 kubectl apply -k kustomize/overlays/dev
 ```
+
+If your cluster is remote, load the image into it (e.g. `kind load
+docker-image philanthropy-os/protonmail-bridge:v3.19.0`, `minikube image load
+…`, or push to your registry and override the image in an overlay).
 
 ## hermes-agent secrets
 
