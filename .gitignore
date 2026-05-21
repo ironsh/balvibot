@@ -1,0 +1,3 @@
+# Filled-in secret env files for kustomize secretGenerator (keep .example only).
+secrets.env
+**/secrets.env

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: protonmail-bridge
+spec:
+  replicas: 1
+  strategy:
+    # The PVC is ReadWriteOnce, so a new pod cannot mount it while the old one
+    # still holds it. Recreate avoids the deadlock during rollouts.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: protonmail-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: protonmail-bridge
+    spec:
+      containers:
+        - name: protonmail-bridge
+          image: shenxn/protonmail-bridge
+          # stdin/tty keep the container ready for the interactive `init`/`login`
+          # flow (`kubectl exec ... -- /bin/bash`) described in the project docs.
+          stdin: true
+          tty: true
+          ports:
+            - name: smtp
+              containerPort: 25
+            - name: imap
+              containerPort: 143
+          volumeMounts:
+            # Bridge stores its keychain and config under /root.
+            - name: data
+              mountPath: /root
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: protonmail-bridge-data
