@@ -40,20 +40,22 @@ If your cluster is remote, load the image into it (e.g. `kind load
 docker-image philanthropy-os/protonmail-bridge:v3.19.0`, `minikube image load
 …`, or push to your registry and override the image in an overlay).
 
-## hermes-agent secrets
+## Secrets
 
-Before deploying, create the secret env file from the template:
+Secrets are provisioned out-of-band from a `.env` file (gitignored, auto-loaded
+by the justfile). Bootstrap once from `.env.example`:
 
 ```sh
-cd kustomize/services/hermes-agent/base
-cp secrets.env.example secrets.env
-# fill in API_SERVER_KEY (openssl rand -hex 32) and provider API keys
+cp .env.example .env
+# edit .env, fill in PHILOS_* values
+
+just bootstrap-secrets
 ```
 
-`secrets.env` is gitignored and consumed by the kustomize `secretGenerator`.
+The recipe is idempotent — re-run it any time to roll a value.
 
-After first deploy, populate the data volume (`config.yaml`, `SOUL.md`) by
-running the agent's interactive setup:
+After first deploy, populate the hermes-agent data volume (`config.yaml`,
+`SOUL.md`) by running the agent's interactive setup:
 
 ```sh
 POD=$(kubectl -n philanthropy-os get pod -l app.kubernetes.io/name=hermes-agent -o name)

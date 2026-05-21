@@ -9,3 +9,11 @@ resources:
   - namespace.yaml
   - ../../services/protonmail-bridge/base
   - ../../services/hermes-agent/base
+  - ../../services/mail-indexer/base
+
+# Sender -> grantee mapping for this environment. Copy grantees.json.example to
+# grantees.json; grantees.json is gitignored (contains PII).
+configMapGenerator:
+  - name: mail-indexer-grantees
+    files:
+      - grantees.json

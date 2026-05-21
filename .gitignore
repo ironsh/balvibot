@@ -1,3 +1,5 @@
-# Filled-in secret env files for kustomize secretGenerator (keep .example only).
-secrets.env
-**/secrets.env
+# Operator-local env vars loaded by the justfile; only .env.example is checked in.
+.env
+
+# Real grantee mapping (contains PII); only .example is checked in.
+**/grantees.json

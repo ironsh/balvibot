@@ -1,0 +1,14 @@
+{
+  "grantees": [
+    {
+      "id": "acme-foundation",
+      "name": "Acme Foundation",
+      "emails": ["contact@acme.org", "jane@acme.org"]
+    },
+    {
+      "id": "beta-collective",
+      "name": "Beta Collective",
+      "emails": ["hello@beta.example"]
+    }
+  ]
+}

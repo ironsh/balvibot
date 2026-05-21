@@ -12,12 +12,8 @@ resources:
   - deployment.yaml
   - service.yaml
 
-# API_SERVER_KEY and provider API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...).
-# Copy secrets.env.example to secrets.env and fill it in; secrets.env is gitignored.
-secretGenerator:
-  - name: hermes-agent-secrets
-    envs:
-      - secrets.env
+# The hermes-agent-secrets Secret (API_SERVER_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY)
+# is provisioned out-of-band via `just bootstrap-secrets` from the operator's shell env.
 
 images:
   - name: nousresearch/hermes-agent

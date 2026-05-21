@@ -23,7 +23,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bash scripts
-COPY gpgparams entrypoint.sh /protonmail/
+COPY docker/protonmail-bridge/gpgparams docker/protonmail-bridge/entrypoint.sh /protonmail/
 
 # Copy protonmail
 COPY --from=build /build/bridge /protonmail/
