@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-agent-data
+  labels:
+    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Holds .env, config.yaml, SOUL.md, and sessions/memories/skills/logs.
+      storage: {{ .Values.hermesAgent.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-agent
+  labels:
+    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 4 }}
+  ports:
+    - name: gateway
+      port: {{ .Values.hermesAgent.ports.gateway }}
+      targetPort: gateway
+    - name: dashboard
+      port: {{ .Values.hermesAgent.ports.dashboard }}
+      targetPort: dashboard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-agent
+  labels:
+    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    # The PVC is ReadWriteOnce, so a new pod cannot mount it while the old one
+    # still holds it. Recreate avoids the deadlock during rollouts.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 8 }}
+    spec:
+      containers:
+        - name: hermes-agent
+          image: "{{ .Values.hermesAgent.image.repository }}:{{ .Values.hermesAgent.image.tag }}"
+          imagePullPolicy: {{ .Values.hermesAgent.image.pullPolicy }}
+          args: ["gateway", "run"]
+          ports:
+            - name: gateway
+              containerPort: {{ .Values.hermesAgent.ports.gateway }}
+            - name: dashboard
+              containerPort: {{ .Values.hermesAgent.ports.dashboard }}
+          env:
+            {{- range $k, $v := .Values.hermesAgent.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          envFrom:
+            # API_SERVER_KEY + provider API keys (see secrets.env).
+            - secretRef:
+                name: hermes-agent-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+          resources:
+            {{- toYaml .Values.hermesAgent.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermes-agent-data

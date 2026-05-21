@@ -10,15 +10,25 @@ mail_indexer_image := "philanthropy-os/mail-indexer"
 mail_indexer_tag := "0.1.0"
 
 philos_namespace := "philanthropy-os"
+philos_release := "philanthropy-os"
+philos_chart := "helm/philanthropy-os"
+philos_grantees := "helm/philanthropy-os/grantees.json"
 
 default:
     @just --list
 
 # One-shot bring-up: bootstrap secrets, build & ship both images to the remote
-# k3s node, and apply the dev overlay. Requires PHILOS_K3S_NODE plus all the
+# k3s node, and install the helm chart. Requires PHILOS_K3S_NODE plus all the
 # PHILOS_* secret env vars (see `bootstrap-secrets`).
-up: bootstrap-secrets build-protonmail-bridge upload-protonmail-bridge build-mail-indexer upload-mail-indexer
-    kubectl apply -k kustomize/overlays/dev
+up: bootstrap-secrets build-protonmail-bridge upload-protonmail-bridge build-mail-indexer upload-mail-indexer deploy
+
+# Install/upgrade the helm release. grantees.json is injected via --set-file so
+# the PII never lands in values.yaml or git.
+deploy:
+    @[ -f "{{philos_grantees}}" ] || { echo "missing {{philos_grantees}} (copy {{philos_grantees}}.example and edit)" >&2; exit 1; }
+    helm upgrade --install {{philos_release}} {{philos_chart}} \
+        --namespace {{philos_namespace}} --create-namespace \
+        --set-file mailIndexer.grantees={{philos_grantees}}
 
 # Build a docker image pinned to linux/amd64 so it runs on x86_64 k3s nodes
 # regardless of the host architecture (e.g. Apple Silicon). Build context is

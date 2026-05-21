@@ -1,0 +1,57 @@
+partOf: philanthropy-os
+
+protonmailBridge:
+  image:
+    repository: philanthropy-os/protonmail-bridge
+    tag: v3.19.0
+    pullPolicy: IfNotPresent
+  storage: 100Mi
+  ports:
+    smtp: 25
+    imap: 143
+
+mailIndexer:
+  image:
+    repository: philanthropy-os/mail-indexer
+    tag: 0.1.0
+    pullPolicy: IfNotPresent
+  storage: 20Gi
+  env:
+    IMAP_ADDR: "protonmail-bridge.philanthropy-os.svc.cluster.local:143"
+    IMAP_TLS: "starttls"
+    MAIL_DB_PATH: "/opt/data/mail.db"
+    MAIL_ATTACHMENTS_DIR: "/opt/data/attachments"
+    MAIL_GRANTEES_FILE: "/opt/config/grantees.json"
+    MAIL_FOLDERS: "INBOX,Sent"
+    MAIL_LOG_LEVEL: "info"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  # Sender -> grantee mapping. Inject via `helm ... --set-file mailIndexer.grantees=...`
+  # so the file (PII) stays out of values.yaml/git.
+  grantees: ""
+
+hermesAgent:
+  image:
+    repository: nousresearch/hermes-agent
+    tag: latest
+    pullPolicy: IfNotPresent
+  storage: 5Gi
+  ports:
+    gateway: 8642
+    dashboard: 9119
+  env:
+    API_SERVER_ENABLED: "true"
+    API_SERVER_HOST: "0.0.0.0"
+    HERMES_DASHBOARD: "1"
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi

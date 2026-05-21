@@ -1,6 +1,6 @@
-# philanthropy-os (Kustomize)
+# philanthropy-os (Helm)
 
-Kubernetes manifests for the philanthropy-os services.
+Kubernetes manifests for the philanthropy-os services, packaged as a Helm chart.
 
 ## Services
 
@@ -8,37 +8,53 @@ Kubernetes manifests for the philanthropy-os services.
   ported from [`shenxn/protonmail-bridge-docker`](https://github.com/shenxn/protonmail-bridge-docker))
   exposing local SMTP (25) and IMAP (143) endpoints that proxy a ProtonMail
   account so cluster workloads can send/receive mail.
+- **mail-indexer** — indexes mail from the bridge into SQLite, tagging messages
+  by grantee (see `helm/philanthropy-os/grantees.json`).
 - **hermes-agent** — runs [`nousresearch/hermes-agent`](https://hermes-agent.nousresearch.com/docs/user-guide/docker)
   in gateway mode, exposing an OpenAI-compatible API (8642) and dashboard (9119).
 
 ## Layout
 
 ```
-kustomize/services/<name>/base/   Reusable manifests for one service
-kustomize/overlays/dev/           Environment overlay: composes all services into a namespace
+helm/philanthropy-os/Chart.yaml      Chart metadata
+helm/philanthropy-os/values.yaml     Tunables (image tags, env, resources)
+helm/philanthropy-os/templates/      One file per service
 ```
 
-The `protonmail-bridge` service lives at `kustomize/services/protonmail-bridge/base`.
-Add new services as sibling folders under `kustomize/services/` and reference
-each service's `base` from the environment overlays.
+Each service template renders its Deployment, Service (where applicable), and
+PVC. Add a new service by dropping a new template file alongside the existing
+ones and a matching block in `values.yaml`.
 
 ## Deploy
 
-Build the protonmail-bridge image first (it's referenced by tag, not pulled):
+Build the local images first (they're referenced by tag, not pulled):
 
 ```sh
 just build-protonmail-bridge
+just build-mail-indexer
 ```
 
-Then apply the manifests:
+Copy and edit the grantee mapping (gitignored):
 
 ```sh
-kubectl apply -k kustomize/overlays/dev
+cp helm/philanthropy-os/grantees.json.example helm/philanthropy-os/grantees.json
+# edit grantees.json
 ```
 
-If your cluster is remote, load the image into it (e.g. `kind load
-docker-image philanthropy-os/protonmail-bridge:v3.19.0`, `minikube image load
-…`, or push to your registry and override the image in an overlay).
+Install/upgrade the chart:
+
+```sh
+just deploy
+```
+
+This runs `helm upgrade --install philanthropy-os helm/philanthropy-os
+--namespace philanthropy-os --create-namespace --set-file
+mailIndexer.grantees=helm/philanthropy-os/grantees.json`.
+
+If your cluster is remote, load the locally built images into it (the justfile
+does this for you over SSH via `just upload-protonmail-bridge` / `just
+upload-mail-indexer`, or use `kind load docker-image …`, `minikube image load
+…`, etc.).
 
 ## Secrets
 

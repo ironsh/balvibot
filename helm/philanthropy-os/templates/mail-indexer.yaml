@@ -1,0 +1,78 @@
+{{- if not .Values.mailIndexer.grantees -}}
+{{- fail "mailIndexer.grantees is required (pass via --set-file mailIndexer.grantees=path/to/grantees.json)" -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mail-indexer-grantees
+  labels:
+    {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
+data:
+  grantees.json: |
+    {{- .Values.mailIndexer.grantees | nindent 4 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mail-indexer-data
+  labels:
+    {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Holds mail.db (SQLite) and the content-addressable attachments tree.
+      storage: {{ .Values.mailIndexer.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mail-indexer
+  labels:
+    {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    # The PVC is ReadWriteOnce, so a new pod cannot mount it while the old one
+    # still holds it. Recreate avoids the deadlock during rollouts.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 8 }}
+      annotations:
+        # Roll pods when grantees.json changes so the new ConfigMap is picked up.
+        checksum/grantees: {{ .Values.mailIndexer.grantees | sha256sum }}
+    spec:
+      containers:
+        - name: mail-indexer
+          image: "{{ .Values.mailIndexer.image.repository }}:{{ .Values.mailIndexer.image.tag }}"
+          imagePullPolicy: {{ .Values.mailIndexer.image.pullPolicy }}
+          env:
+            {{- range $k, $v := .Values.mailIndexer.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          envFrom:
+            # IMAP_USER + IMAP_PASS for the protonmail-bridge account.
+            - secretRef:
+                name: mail-indexer-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: config
+              mountPath: /opt/config
+              readOnly: true
+          resources:
+            {{- toYaml .Values.mailIndexer.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mail-indexer-data
+        - name: config
+          configMap:
+            name: mail-indexer-grantees

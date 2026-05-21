@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: protonmail-bridge-data
+  labels:
+    {{- include "philos.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.protonmailBridge.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: protonmail-bridge
+  labels:
+    {{- include "philos.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "philos.selectorLabels" (dict "name" "protonmail-bridge") | nindent 4 }}
+  ports:
+    - name: smtp
+      port: {{ .Values.protonmailBridge.ports.smtp }}
+      targetPort: smtp
+    - name: imap
+      port: {{ .Values.protonmailBridge.ports.imap }}
+      targetPort: imap
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: protonmail-bridge
+  labels:
+    {{- include "philos.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    # The PVC is ReadWriteOnce, so a new pod cannot mount it while the old one
+    # still holds it. Recreate avoids the deadlock during rollouts.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "protonmail-bridge") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "philos.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 8 }}
+    spec:
+      containers:
+        - name: protonmail-bridge
+          image: "{{ .Values.protonmailBridge.image.repository }}:{{ .Values.protonmailBridge.image.tag }}"
+          imagePullPolicy: {{ .Values.protonmailBridge.image.pullPolicy }}
+          # stdin/tty keep the container ready for the interactive `init`/`login`
+          # flow (`kubectl exec ... -- /bin/bash`) described in the project docs.
+          stdin: true
+          tty: true
+          ports:
+            - name: smtp
+              containerPort: {{ .Values.protonmailBridge.ports.smtp }}
+            - name: imap
+              containerPort: {{ .Values.protonmailBridge.ports.imap }}
+          volumeMounts:
+            # Bridge stores its keychain and config under /root.
+            - name: data
+              mountPath: /root
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: protonmail-bridge-data
