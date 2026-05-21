@@ -41,6 +41,22 @@ mailIndexer:
   # `just bootstrap-secrets` (PHILOS_MAIL_INDEXER_MCP_TOKEN).
   grantees: ""
 
+signalCli:
+  image:
+    repository: philanthropy-os/signal-cli
+    tag: 0.14.3
+    pullPolicy: IfNotPresent
+  storage: 1Gi
+  ports:
+    http: 8080
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
 hermesAgent:
   image:
     repository: nousresearch/hermes-agent
@@ -55,6 +71,15 @@ hermesAgent:
     API_SERVER_HOST: "0.0.0.0"
     HERMES_DASHBOARD: "1"
     GATEWAY_ALLOW_ALL_USERS: "true"
+  # Signal integration. Leave `account` empty to disable: when unset, no
+  # SIGNAL_* env vars are emitted and hermes runs without a Signal dependency.
+  signal:
+    httpUrl: "http://signal-cli.philanthropy-os.svc.cluster.local:8080"
+    account: ""              # E.164 phone number, e.g. "+1234567890"
+    allowedUsers: ""         # comma-separated E.164 numbers or UUIDs
+    groupAllowedUsers: ""    # comma-separated group IDs, or "*" for all; omit to disable groups
+    homeChannel: ""          # default delivery target for cron jobs
+    requireMention: false
   resources:
     requests:
       cpu: "1"

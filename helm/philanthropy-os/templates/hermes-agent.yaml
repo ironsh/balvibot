@@ -65,6 +65,28 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+            {{- with .Values.hermesAgent.signal }}
+            {{- if .account }}
+            - name: SIGNAL_HTTP_URL
+              value: {{ .httpUrl | quote }}
+            - name: SIGNAL_ACCOUNT
+              value: {{ .account | quote }}
+            - name: SIGNAL_REQUIRE_MENTION
+              value: {{ .requireMention | quote }}
+            {{- if .allowedUsers }}
+            - name: SIGNAL_ALLOWED_USERS
+              value: {{ .allowedUsers | quote }}
+            {{- end }}
+            {{- if .groupAllowedUsers }}
+            - name: SIGNAL_GROUP_ALLOWED_USERS
+              value: {{ .groupAllowedUsers | quote }}
+            {{- end }}
+            {{- if .homeChannel }}
+            - name: SIGNAL_HOME_CHANNEL
+              value: {{ .homeChannel | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
           envFrom:
             # API_SERVER_KEY + provider API keys (see secrets.env).
             - secretRef:

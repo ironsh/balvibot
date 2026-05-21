@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signal-cli-data
+  labels:
+    {{- include "philos.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Holds the signal-cli account state (keys, identities, message store).
+      storage: {{ .Values.signalCli.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-cli
+  labels:
+    {{- include "philos.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "philos.selectorLabels" (dict "name" "signal-cli") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.signalCli.ports.http }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-cli
+  labels:
+    {{- include "philos.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    # The PVC is ReadWriteOnce, so a new pod cannot mount it while the old one
+    # still holds it. Recreate avoids the deadlock during rollouts.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "signal-cli") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "philos.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 8 }}
+    spec:
+      containers:
+        - name: signal-cli
+          image: "{{ .Values.signalCli.image.repository }}:{{ .Values.signalCli.image.tag }}"
+          imagePullPolicy: {{ .Values.signalCli.image.pullPolicy }}
+          # stdin/tty keep the container ready for interactive account flows
+          # (`kubectl exec ... -- signal-cli register/verify`) before the
+          # daemon has any registered numbers.
+          stdin: true
+          tty: true
+          ports:
+            - name: http
+              containerPort: {{ .Values.signalCli.ports.http }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.signalCli.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: signal-cli-data

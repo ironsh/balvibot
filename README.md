@@ -12,6 +12,9 @@ Kubernetes manifests for the philanthropy-os services, packaged as a Helm chart.
   by grantee (see `helm/philanthropy-os/grantees.json`).
 - **hermes-agent** — runs [`nousresearch/hermes-agent`](https://hermes-agent.nousresearch.com/docs/user-guide/docker)
   in gateway mode, exposing an OpenAI-compatible API (8642) and dashboard (9119).
+- **signal-cli** — locally built [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli)
+  image running the JSON-RPC HTTP daemon (8080) so cluster workloads can send
+  and receive Signal messages.
 
 ## Layout
 
@@ -32,6 +35,7 @@ Build the local images first (they're referenced by tag, not pulled):
 ```sh
 just build-protonmail-bridge
 just build-mail-indexer
+just build-signal-cli
 ```
 
 Copy and edit the grantee mapping (gitignored):
@@ -101,6 +105,35 @@ Then restart the pod so it boots normally with the stored credentials:
 ```sh
 kubectl -n philanthropy-os delete "$POD"
 ```
+
+## signal-cli first-time device link
+
+The daemon ships with no account. Link it as a secondary device of an existing
+Signal account (you can also register a fresh number with `signal-cli register`
++ `verify`, but linking is faster and avoids burning an SMS code).
+
+```sh
+POD=$(kubectl -n philanthropy-os get pod -l app.kubernetes.io/name=signal-cli -o name)
+kubectl -n philanthropy-os exec -it "$POD" -- \
+    signal-cli --config /data link -n "philos"
+```
+
+This prints a `sgnl://linkdevice?...` URI. On the phone that owns the Signal
+account, open **Settings → Linked devices → Link new device** and either scan
+the URI as a QR code (e.g. paste it into <https://qrcode.show> from another
+machine and point the phone's camera at the result) or use the system camera.
+
+The command blocks until the link is confirmed on the phone, then writes the
+linked-account state to `/data` on the PVC. Restart the pod so the daemon boots
+with the new account:
+
+```sh
+kubectl -n philanthropy-os delete "$POD"
+```
+
+Once linked, set `hermesAgent.signal.account` in `values.yaml` (or via `--set`)
+to the linked phone number in E.164 form and redeploy so hermes picks up the
+SIGNAL_* env vars.
 
 ## Connecting
 

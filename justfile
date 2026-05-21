@@ -9,6 +9,10 @@ protonmail_bridge_tag := protonmail_bridge_version
 mail_indexer_image := "philanthropy-os/mail-indexer"
 mail_indexer_tag := "0.1.0"
 
+signal_cli_version := "0.14.3"
+signal_cli_image := "philanthropy-os/signal-cli"
+signal_cli_tag := signal_cli_version
+
 philos_namespace := "philanthropy-os"
 philos_release := "philanthropy-os"
 philos_chart := "helm/philanthropy-os"
@@ -20,7 +24,7 @@ default:
 # One-shot bring-up: bootstrap secrets, build & ship both images to the remote
 # k3s node, and install the helm chart. Requires PHILOS_K3S_NODE plus all the
 # PHILOS_* secret env vars (see `bootstrap-secrets`).
-up: bootstrap-secrets build-protonmail-bridge upload-protonmail-bridge build-mail-indexer upload-mail-indexer deploy
+up: bootstrap-secrets build-protonmail-bridge upload-protonmail-bridge build-mail-indexer upload-mail-indexer build-signal-cli upload-signal-cli deploy
 
 # Install/upgrade the helm release. grantees.json is injected via --set-file so
 # the PII never lands in values.yaml or git.
@@ -64,6 +68,15 @@ build-mail-indexer tag=mail_indexer_tag:
 # Stream the locally built mail-indexer image to the remote k3s node.
 upload-mail-indexer tag=mail_indexer_tag:
     @just _upload "{{mail_indexer_image}}:{{tag}}"
+
+# Build the signal-cli image. The Dockerfile pulls the pinned upstream tarball
+# from github.com/AsamK/signal-cli at build time.
+build-signal-cli version=signal_cli_version tag=signal_cli_tag:
+    @just _build "{{signal_cli_image}}:{{tag}}" docker/signal-cli/Dockerfile --build-arg version={{version}}
+
+# Stream the locally built signal-cli image to the remote k3s node.
+upload-signal-cli tag=signal_cli_tag:
+    @just _upload "{{signal_cli_image}}:{{tag}}"
 
 # Create/refresh the Kubernetes Secrets for each service from the operator's
 # shell env. Idempotent: re-run after changing values to roll the secret.
