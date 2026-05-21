@@ -28,6 +28,9 @@ All configuration is via environment variables:
 | `MAIL_GRANTEES_FILE` | yes | Path to the grantee mapping JSON |
 | `MAIL_FOLDERS` | no | Comma-separated folders. Default `INBOX,Sent` |
 | `MAIL_LOG_LEVEL` | no | `debug` \| `info` (default) \| `warn` \| `error` |
+| `MCP_ENABLED` | no | `true` (default) starts the MCP server; `false` disables it |
+| `MCP_BIND_ADDR` | no | Listen address for the MCP server, default `:8080` |
+| `MCP_BEARER_TOKEN` | yes¹ | Shared secret required on every MCP request (required when `MCP_ENABLED=true`) |
 
 The bridge uses a self-signed certificate, so the client allows insecure TLS.
 
@@ -95,6 +98,32 @@ SELECT m.subject, m.from_addr
 FROM messages m
 JOIN message_recipients r ON r.message_id = m.id
 WHERE r.email = 'jane@acme.org';
+```
+
+## MCP server
+
+The daemon also exposes a read-only [MCP](https://modelcontextprotocol.io)
+server over Streamable HTTP at `http://<host>:<MCP_BIND_ADDR>/mcp`. Every
+request must carry `Authorization: Bearer $MCP_BEARER_TOKEN`. A bare
+`/healthz` endpoint (no auth) is exposed for k8s probes.
+
+Tools:
+
+| Tool | Purpose |
+|---|---|
+| `list_grantees` | All grantees and their email aliases |
+| `list_emails_for_grantee` | Paginated message summaries for a grantee (or `_unassigned`) |
+| `get_email` | Full message by numeric id or RFC 5322 `Message-ID` |
+| `list_threads_for_grantee` | Paginated threads for a grantee |
+| `get_thread` | Thread metadata + all messages in chronological order |
+| `search_emails` | Filter by grantee / From / Subject / Body / date range |
+| `list_attachments` | Attachment metadata for a message |
+
+In-cluster the server sits behind the `mail-indexer` `Service` on port 8080.
+For local testing:
+
+```sh
+curl -H "Authorization: Bearer $MCP_BEARER_TOKEN" http://localhost:8080/healthz
 ```
 
 ## Tests

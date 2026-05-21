@@ -1,0 +1,306 @@
+package mcpserver
+
+import (
+	"context"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/ironcd/philanthropy-os/tools/mail-indexer/internal/store"
+)
+
+const (
+	serverName    = "mail-indexer"
+	serverVersion = "0.1.0"
+)
+
+type Config struct {
+	BindAddr    string
+	BearerToken string
+}
+
+// Run starts the MCP server and blocks until ctx is cancelled or the listener
+// returns an error. It shuts the HTTP server down gracefully on ctx.Done.
+func Run(ctx context.Context, cfg Config, st *store.Store, logger *slog.Logger) error {
+	if cfg.BearerToken == "" {
+		return errors.New("mcp bearer token is required")
+	}
+	if cfg.BindAddr == "" {
+		return errors.New("mcp bind address is required")
+	}
+
+	mcpSrv := buildServer(st)
+
+	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return mcpSrv
+	}, nil)
+
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", streamHandler)
+	mux.Handle("/mcp/", streamHandler)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	authed := bearerAuth(cfg.BearerToken, mux)
+
+	httpSrv := &http.Server{
+		Addr:              cfg.BindAddr,
+		Handler:           authed,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("mcp server listening", "addr", cfg.BindAddr)
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutdownCtx)
+		return ctx.Err()
+	case err := <-errCh:
+		return err
+	}
+}
+
+func bearerAuth(token string, next http.Handler) http.Handler {
+	want := []byte(token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if got == "" || subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="mail-indexer"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func buildServer(st *store.Store) *mcp.Server {
+	s := mcp.NewServer(&mcp.Implementation{
+		Name:    serverName,
+		Version: serverVersion,
+	}, nil)
+
+	h := &handlers{st: st}
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_grantees",
+		Description: "List all grantees known to the mail indexer, including their associated email addresses. Use the returned id with the other tools.",
+	}, h.listGrantees)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_emails_for_grantee",
+		Description: "List email message summaries (most recent first) for a given grantee. Supports date range filtering and cursor pagination.",
+	}, h.listEmailsForGrantee)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_email",
+		Description: "Retrieve a single email message in full (headers, recipients, plain-text and HTML bodies, attachment metadata). Accepts either the numeric internal id or the RFC 5322 Message-ID.",
+	}, h.getEmail)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_threads_for_grantee",
+		Description: "List email threads (most recently active first) for a given grantee.",
+	}, h.listThreadsForGrantee)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_thread",
+		Description: "Retrieve a thread's metadata and all messages in chronological order.",
+	}, h.getThread)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "search_emails",
+		Description: "Search messages by any combination of grantee, From substring, Subject substring, Body substring, and date range. At least one filter is required.",
+	}, h.searchEmails)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_attachments",
+		Description: "List attachment metadata for a message (no file contents). Use the numeric message id from list_emails_for_grantee.",
+	}, h.listAttachments)
+
+	return s
+}
+
+type handlers struct {
+	st *store.Store
+}
+
+func parseTimeBound(s string) (*time.Time, error) {
+	if s == "" {
+		return nil, nil
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return &t, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timestamp %q: expected RFC 3339", s)
+	}
+	return &t, nil
+}
+
+func (h *handlers) listGrantees(ctx context.Context, _ *mcp.CallToolRequest, _ *ListGranteesInput) (*mcp.CallToolResult, *ListGranteesOutput, error) {
+	gs, err := h.st.ListGrantees(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if gs == nil {
+		gs = []store.Grantee{}
+	}
+	return nil, &ListGranteesOutput{Grantees: gs}, nil
+}
+
+func (h *handlers) listEmailsForGrantee(ctx context.Context, _ *mcp.CallToolRequest, in *ListEmailsForGranteeInput) (*mcp.CallToolResult, *ListEmailsForGranteeOutput, error) {
+	if in.GranteeID == "" {
+		return nil, nil, errors.New("grantee_id is required")
+	}
+	since, err := parseTimeBound(in.Since)
+	if err != nil {
+		return nil, nil, err
+	}
+	until, err := parseTimeBound(in.Until)
+	if err != nil {
+		return nil, nil, err
+	}
+	msgs, next, err := h.st.ListMessagesByGrantee(ctx, in.GranteeID, since, until, in.Limit, in.Cursor)
+	if err != nil {
+		return nil, nil, err
+	}
+	if msgs == nil {
+		msgs = []store.MessageSummary{}
+	}
+	return nil, &ListEmailsForGranteeOutput{Messages: msgs, NextCursor: next}, nil
+}
+
+func (h *handlers) getEmail(ctx context.Context, _ *mcp.CallToolRequest, in *GetEmailInput) (*mcp.CallToolResult, *GetEmailOutput, error) {
+	if in.ID == "" {
+		return nil, nil, errors.New("id is required")
+	}
+	m, atts, recs, err := h.st.GetMessage(ctx, in.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if m == nil {
+		return nil, nil, fmt.Errorf("message %q not found", in.ID)
+	}
+	detail := &MessageDetail{
+		ID:         m.ID,
+		MessageID:  m.MessageID,
+		ThreadID:   m.ThreadID,
+		GranteeID:  m.GranteeID,
+		Folder:     m.Folder,
+		InReplyTo:  m.InReplyTo,
+		References: m.References,
+		From:       m.From,
+		To:         m.To,
+		Cc:         m.Cc,
+		Recipients: recs,
+		Subject:    m.Subject,
+		Date:       m.Date,
+		BodyText:   m.BodyText,
+		BodyHTML:   m.BodyHTML,
+		SizeBytes:  m.SizeBytes,
+	}
+	return nil, &GetEmailOutput{Message: detail, Attachments: atts}, nil
+}
+
+func (h *handlers) listThreadsForGrantee(ctx context.Context, _ *mcp.CallToolRequest, in *ListThreadsForGranteeInput) (*mcp.CallToolResult, *ListThreadsForGranteeOutput, error) {
+	if in.GranteeID == "" {
+		return nil, nil, errors.New("grantee_id is required")
+	}
+	since, err := parseTimeBound(in.Since)
+	if err != nil {
+		return nil, nil, err
+	}
+	until, err := parseTimeBound(in.Until)
+	if err != nil {
+		return nil, nil, err
+	}
+	ts, next, err := h.st.ListThreadsByGrantee(ctx, in.GranteeID, since, until, in.Limit, in.Cursor)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ts == nil {
+		ts = []store.ThreadSummary{}
+	}
+	return nil, &ListThreadsForGranteeOutput{Threads: ts, NextCursor: next}, nil
+}
+
+func (h *handlers) getThread(ctx context.Context, _ *mcp.CallToolRequest, in *GetThreadInput) (*mcp.CallToolResult, *GetThreadOutput, error) {
+	if in.ThreadID == 0 {
+		return nil, nil, errors.New("thread_id is required")
+	}
+	t, msgs, err := h.st.GetThreadMessages(ctx, in.ThreadID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if t == nil {
+		return nil, nil, fmt.Errorf("thread %d not found", in.ThreadID)
+	}
+	if msgs == nil {
+		msgs = []store.MessageSummary{}
+	}
+	return nil, &GetThreadOutput{Thread: t, Messages: msgs}, nil
+}
+
+func (h *handlers) searchEmails(ctx context.Context, _ *mcp.CallToolRequest, in *SearchEmailsInput) (*mcp.CallToolResult, *SearchEmailsOutput, error) {
+	since, err := parseTimeBound(in.Since)
+	if err != nil {
+		return nil, nil, err
+	}
+	until, err := parseTimeBound(in.Until)
+	if err != nil {
+		return nil, nil, err
+	}
+	msgs, next, err := h.st.SearchMessages(ctx, store.SearchParams{
+		GranteeID: in.GranteeID,
+		From:      in.From,
+		Subject:   in.Subject,
+		Body:      in.Body,
+		Since:     since,
+		Until:     until,
+		Limit:     in.Limit,
+		Cursor:    in.Cursor,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if msgs == nil {
+		msgs = []store.MessageSummary{}
+	}
+	return nil, &SearchEmailsOutput{Messages: msgs, NextCursor: next}, nil
+}
+
+func (h *handlers) listAttachments(ctx context.Context, _ *mcp.CallToolRequest, in *ListAttachmentsInput) (*mcp.CallToolResult, *ListAttachmentsOutput, error) {
+	if in.MessageID == 0 {
+		return nil, nil, errors.New("message_id is required")
+	}
+	atts, err := h.st.ListAttachmentsByMessage(ctx, in.MessageID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if atts == nil {
+		atts = []store.Attachment{}
+	}
+	return nil, &ListAttachmentsOutput{Attachments: atts}, nil
+}

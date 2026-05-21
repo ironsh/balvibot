@@ -25,6 +25,21 @@ spec:
       # Holds mail.db (SQLite) and the content-addressable attachments tree.
       storage: {{ .Values.mailIndexer.storage }}
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail-indexer
+  labels:
+    {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ .Values.mailIndexer.ports.mcp }}
+      targetPort: mcp
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -58,9 +73,25 @@ spec:
               value: {{ $v | quote }}
             {{- end }}
           envFrom:
-            # IMAP_USER + IMAP_PASS for the protonmail-bridge account.
+            # IMAP_USER + IMAP_PASS for the protonmail-bridge account, plus
+            # MCP_BEARER_TOKEN for the read-only MCP server.
             - secretRef:
                 name: mail-indexer-secrets
+          ports:
+            - name: mcp
+              containerPort: {{ .Values.mailIndexer.ports.mcp }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+            initialDelaySeconds: 10
+            periodSeconds: 30
           volumeMounts:
             - name: data
               mountPath: /opt/data

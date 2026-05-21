@@ -70,11 +70,11 @@ upload-mail-indexer tag=mail_indexer_tag:
 # Required env vars (all PHILOS_-prefixed):
 #   hermes-agent: PHILOS_API_SERVER_KEY + at least one of
 #                 PHILOS_ANTHROPIC_API_KEY / PHILOS_OPENAI_API_KEY
-#   mail-indexer: PHILOS_IMAP_USER, PHILOS_IMAP_PASS
+#   mail-indexer: PHILOS_IMAP_USER, PHILOS_IMAP_PASS, PHILOS_MAIL_INDEXER_MCP_TOKEN
 bootstrap-secrets:
     @set -eu; \
         missing=(); \
-        for v in PHILOS_API_SERVER_KEY PHILOS_IMAP_USER PHILOS_IMAP_PASS; do \
+        for v in PHILOS_API_SERVER_KEY PHILOS_IMAP_USER PHILOS_IMAP_PASS PHILOS_MAIL_INDEXER_MCP_TOKEN; do \
             if [ -z "${!v:-}" ]; then missing+=("$v"); fi; \
         done; \
         if [ -z "${PHILOS_ANTHROPIC_API_KEY:-}" ] && [ -z "${PHILOS_OPENAI_API_KEY:-}" ]; then \
@@ -99,4 +99,5 @@ bootstrap-secrets:
             --namespace={{philos_namespace}} \
             --from-literal=IMAP_USER="$PHILOS_IMAP_USER" \
             --from-literal=IMAP_PASS="$PHILOS_IMAP_PASS" \
+            --from-literal=MCP_BEARER_TOKEN="$PHILOS_MAIL_INDEXER_MCP_TOKEN" \
             --dry-run=client -o yaml | kubectl apply -f -

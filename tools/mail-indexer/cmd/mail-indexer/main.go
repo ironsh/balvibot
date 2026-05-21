@@ -13,6 +13,7 @@ import (
 	"github.com/ironcd/philanthropy-os/tools/mail-indexer/internal/config"
 	"github.com/ironcd/philanthropy-os/tools/mail-indexer/internal/grantee"
 	"github.com/ironcd/philanthropy-os/tools/mail-indexer/internal/mailbox"
+	"github.com/ironcd/philanthropy-os/tools/mail-indexer/internal/mcpserver"
 	"github.com/ironcd/philanthropy-os/tools/mail-indexer/internal/store"
 )
 
@@ -76,7 +77,11 @@ func run() error {
 	}()
 
 	var wg sync.WaitGroup
-	errs := make(chan error, len(cfg.Folders))
+	workers := len(cfg.Folders)
+	if cfg.MCPEnabled {
+		workers++
+	}
+	errs := make(chan error, workers)
 	for _, f := range cfg.Folders {
 		wg.Add(1)
 		go func(folder string) {
@@ -86,6 +91,19 @@ func run() error {
 				errs <- err
 			}
 		}(f)
+	}
+	if cfg.MCPEnabled {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := mcpserver.Run(ctx, mcpserver.Config{
+				BindAddr:    cfg.MCPBindAddr,
+				BearerToken: cfg.MCPBearerToken,
+			}, st, logger)
+			if err != nil && !errors.Is(err, context.Canceled) {
+				errs <- err
+			}
+		}()
 	}
 	wg.Wait()
 	close(errs)

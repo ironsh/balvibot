@@ -16,6 +16,8 @@ mailIndexer:
     tag: 0.1.0
     pullPolicy: IfNotPresent
   storage: 20Gi
+  ports:
+    mcp: 8080
   env:
     IMAP_ADDR: "protonmail-bridge.philanthropy-os.svc.cluster.local:143"
     IMAP_TLS: "starttls"
@@ -24,6 +26,8 @@ mailIndexer:
     MAIL_GRANTEES_FILE: "/opt/config/grantees.json"
     MAIL_FOLDERS: "INBOX,Sent"
     MAIL_LOG_LEVEL: "info"
+    MCP_ENABLED: "true"
+    MCP_BIND_ADDR: ":8080"
   resources:
     requests:
       cpu: "100m"
@@ -33,6 +37,8 @@ mailIndexer:
       memory: 512Mi
   # Sender -> grantee mapping. Inject via `helm ... --set-file mailIndexer.grantees=...`
   # so the file (PII) stays out of values.yaml/git.
+  # MCP_BEARER_TOKEN is injected via the mail-indexer-secrets Secret built by
+  # `just bootstrap-secrets` (PHILOS_MAIL_INDEXER_MCP_TOKEN).
   grantees: ""
 
 hermesAgent:

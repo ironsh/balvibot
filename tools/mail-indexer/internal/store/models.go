@@ -52,3 +52,48 @@ type MailboxState struct {
 	UIDValidity  uint32
 	LastUID      uint32
 }
+
+type Grantee struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Emails    []string  `json:"emails"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type MessageSummary struct {
+	ID             int64     `json:"id"`
+	MessageID      string    `json:"message_id"`
+	ThreadID       int64     `json:"thread_id"`
+	GranteeID      *string   `json:"grantee_id,omitempty"`
+	Folder         string    `json:"folder"`
+	From           Address   `json:"from"`
+	Subject        string    `json:"subject,omitempty"`
+	Date           time.Time `json:"date"`
+	HasAttachments bool      `json:"has_attachments"`
+	Snippet        string    `json:"snippet,omitempty"`
+}
+
+type ThreadSummary struct {
+	ID            int64     `json:"id"`
+	RootMessageID string    `json:"root_message_id"`
+	SubjectNorm   string    `json:"subject_norm,omitempty"`
+	GranteeID     *string   `json:"grantee_id,omitempty"`
+	FirstSeenAt   time.Time `json:"first_seen_at"`
+	LastSeenAt    time.Time `json:"last_seen_at"`
+	MessageCount  int       `json:"message_count"`
+}
+
+// Sentinel grantee id used by the query API to select messages/threads
+// whose grantee_id is NULL.
+const UnassignedGrantee = "_unassigned"
+
+type SearchParams struct {
+	GranteeID string
+	From      string
+	Subject   string
+	Body      string
+	Since     *time.Time
+	Until     *time.Time
+	Limit     int
+	Cursor    int64
+}

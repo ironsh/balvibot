@@ -18,6 +18,10 @@ type Config struct {
 	GranteesFile   string
 	Folders        []string
 	LogLevel       slog.Level
+
+	MCPEnabled     bool
+	MCPBindAddr    string
+	MCPBearerToken string
 }
 
 type Grantee struct {
@@ -39,6 +43,9 @@ func FromEnv() (*Config, error) {
 		DBPath:         os.Getenv("MAIL_DB_PATH"),
 		AttachmentsDir: os.Getenv("MAIL_ATTACHMENTS_DIR"),
 		GranteesFile:   os.Getenv("MAIL_GRANTEES_FILE"),
+		MCPEnabled:     strings.ToLower(getenvDefault("MCP_ENABLED", "true")) == "true",
+		MCPBindAddr:    getenvDefault("MCP_BIND_ADDR", ":8080"),
+		MCPBearerToken: os.Getenv("MCP_BEARER_TOKEN"),
 	}
 
 	folders := getenvDefault("MAIL_FOLDERS", "INBOX,Sent")
@@ -96,6 +103,9 @@ func (c *Config) validate() error {
 	}
 	if len(c.Folders) == 0 {
 		return fmt.Errorf("MAIL_FOLDERS produced an empty folder list")
+	}
+	if c.MCPEnabled && c.MCPBearerToken == "" {
+		return fmt.Errorf("MCP_BEARER_TOKEN is required when MCP_ENABLED=true (set MCP_ENABLED=false to disable the MCP server)")
 	}
 	return nil
 }
