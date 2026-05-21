@@ -54,6 +54,7 @@ hermesAgent:
     API_SERVER_ENABLED: "true"
     API_SERVER_HOST: "0.0.0.0"
     HERMES_DASHBOARD: "1"
+    GATEWAY_ALLOW_ALL_USERS: "true"
   resources:
     requests:
       cpu: "1"
