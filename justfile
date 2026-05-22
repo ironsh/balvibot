@@ -25,7 +25,7 @@ default:
 # One-shot bring-up: bootstrap secrets, build & ship both images to the remote
 # k3s node, and install the helm chart. Requires PHILOS_K3S_NODE plus all the
 # PHILOS_* secret env vars (see `bootstrap-secrets`).
-up: bootstrap-secrets build-protonmail-bridge upload-protonmail-bridge build-mail-indexer upload-mail-indexer build-signal-cli upload-signal-cli deploy
+up: bootstrap-secrets ship-protonmail-bridge ship-mail-indexer ship-signal-cli deploy
 
 # Install/upgrade the helm release. grantees.json is injected via --set-file so
 # the PII never lands in values.yaml or git. values.local.yaml is layered on top
@@ -56,6 +56,20 @@ _upload image:
     @[ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }
     docker save {{image}} | ssh "$PHILOS_K3S_NODE" 'sudo k3s ctr images import -'
 
+# Build via the named recipe and only upload to the k3s node if the resulting
+# image ID actually changed. Lets `up` be a cheap no-op when nothing rebuilds.
+[private]
+_ship image build_recipe:
+    @set -eu; \
+        prev=$(docker images -q "{{image}}" 2>/dev/null || true); \
+        just {{build_recipe}}; \
+        curr=$(docker images -q "{{image}}" 2>/dev/null || true); \
+        if [ -n "$prev" ] && [ "$prev" = "$curr" ]; then \
+            echo "{{image}} unchanged ($curr); skipping upload"; \
+        else \
+            just _upload "{{image}}"; \
+        fi
+
 # Build the protonmail-bridge image locally from docker/protonmail-bridge.
 build-protonmail-bridge version=protonmail_bridge_version tag=protonmail_bridge_tag:
     @just _build "{{protonmail_bridge_image}}:{{tag}}" docker/protonmail-bridge/Dockerfile --build-arg version={{version}}
@@ -80,6 +94,17 @@ build-signal-cli version=signal_cli_version tag=signal_cli_tag:
 # Stream the locally built signal-cli image to the remote k3s node.
 upload-signal-cli tag=signal_cli_tag:
     @just _upload "{{signal_cli_image}}:{{tag}}"
+
+# Build + conditionally upload helpers used by `up`. Each skips the upload step
+# when the build did not change the image ID.
+ship-protonmail-bridge:
+    @just _ship "{{protonmail_bridge_image}}:{{protonmail_bridge_tag}}" build-protonmail-bridge
+
+ship-mail-indexer:
+    @just _ship "{{mail_indexer_image}}:{{mail_indexer_tag}}" build-mail-indexer
+
+ship-signal-cli:
+    @just _ship "{{signal_cli_image}}:{{signal_cli_tag}}" build-signal-cli
 
 # Create/refresh the Kubernetes Secrets for each service from the operator's
 # shell env. Idempotent: re-run after changing values to roll the secret.
