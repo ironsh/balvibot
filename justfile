@@ -13,6 +13,9 @@ signal_cli_version := "0.14.3"
 signal_cli_image := "philanthropy-os/signal-cli"
 signal_cli_tag := signal_cli_version
 
+hermes_skills_image := "philanthropy-os/hermes-skills"
+hermes_skills_tag := "0.2.0"
+
 philos_namespace := "philanthropy-os"
 philos_release := "philanthropy-os"
 philos_chart := "helm/philanthropy-os"
@@ -25,7 +28,7 @@ default:
 # One-shot bring-up: bootstrap secrets, build & ship both images to the remote
 # k3s node, and install the helm chart. Requires PHILOS_K3S_NODE plus all the
 # PHILOS_* secret env vars (see `bootstrap-secrets`).
-up: bootstrap-secrets ship-protonmail-bridge ship-mail-indexer ship-signal-cli deploy
+up: bootstrap-secrets ship-protonmail-bridge ship-mail-indexer ship-signal-cli ship-hermes-skills deploy
 
 # Install/upgrade the helm release. grantees.json is injected via --set-file so
 # the PII never lands in values.yaml or git. values.local.yaml is layered on top
@@ -95,6 +98,16 @@ build-signal-cli version=signal_cli_version tag=signal_cli_tag:
 upload-signal-cli tag=signal_cli_tag:
     @just _upload "{{signal_cli_image}}:{{tag}}"
 
+# Build the hermes-skills image — a tiny busybox-based bundle of chart-built-in
+# hermes skills (see docker/hermes-skills/skills/). The hermes-agent pod uses
+# it as an init container to populate a read-only overlay mount.
+build-hermes-skills tag=hermes_skills_tag:
+    @just _build "{{hermes_skills_image}}:{{tag}}" docker/hermes-skills/Dockerfile
+
+# Stream the locally built hermes-skills image to the remote k3s node.
+upload-hermes-skills tag=hermes_skills_tag:
+    @just _upload "{{hermes_skills_image}}:{{tag}}"
+
 # Build + conditionally upload helpers used by `up`. Each skips the upload step
 # when the build did not change the image ID.
 ship-protonmail-bridge:
@@ -105,6 +118,9 @@ ship-mail-indexer:
 
 ship-signal-cli:
     @just _ship "{{signal_cli_image}}:{{signal_cli_tag}}" build-signal-cli
+
+ship-hermes-skills:
+    @just _ship "{{hermes_skills_image}}:{{hermes_skills_tag}}" build-hermes-skills
 
 # Create/refresh the Kubernetes Secrets for each service from the operator's
 # shell env. Idempotent: re-run after changing values to roll the secret.

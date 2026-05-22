@@ -15,6 +15,10 @@ Kubernetes manifests for the philanthropy-os services, packaged as a Helm chart.
 - **signal-cli** — locally built [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli)
   image running the JSON-RPC HTTP daemon (8080) so cluster workloads can send
   and receive Signal messages.
+- **hermes-skills** — locally built busybox-based bundle of chart-built-in
+  hermes skills (see `docker/hermes-skills/skills/`). Pulled by an init
+  container in the hermes-agent pod and mounted read-only as an overlay over
+  `/opt/data/skills/<category>/`.
 
 ## Layout
 
@@ -36,6 +40,7 @@ Build the local images first (they're referenced by tag, not pulled):
 just build-protonmail-bridge
 just build-mail-indexer
 just build-signal-cli
+just build-hermes-skills
 ```
 
 Copy and edit the grantee mapping (gitignored):
@@ -83,6 +88,21 @@ When `hermesAgent.mailIndexer.enabled` is true (default), an
 `mcp_servers.mail-indexer` entry is merged into the rendered config and the
 mail-indexer URL + bearer token are exposed as `MAIL_INDEXER_MCP_URL` /
 `MAIL_INDEXER_MCP_TOKEN` env vars (resolved by hermes at runtime).
+
+The agent's `SOUL.md` lives at `helm/philanthropy-os/SOUL.md` and ships in the
+`hermes-agent-config` ConfigMap, mounted read-only at `/opt/data/SOUL.md` via
+a `subPath` overlay so the agent cannot rewrite its own system prompt. Bump
+it by editing the file and redeploying — the `checksum/config` pod annotation
+rolls the pod automatically.
+
+Built-in hermes skills live under `docker/hermes-skills/skills/<skill>/SKILL.md`
+and ship as the `philanthropy-os/hermes-skills` image. The hermes-agent pod
+pulls that image with an `init-skills` init container, unpacks `/skills/.`
+into a pod-local emptyDir, and mounts it read-only over
+`/opt/data/skills/<hermesAgent.skills.category>/` — an overlay over the PVC,
+so user/agent-authored skills in other categories remain writable. Roll the
+skill bundle by bumping `hermesAgent.skills.image.tag` in `values.yaml` and
+running `just build-hermes-skills upload-hermes-skills deploy`.
 
 ## protonmail-bridge first-time login
 

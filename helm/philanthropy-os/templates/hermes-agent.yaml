@@ -6,6 +6,8 @@
 {{-   $existing := default dict $config.mcp_servers -}}
 {{-   $_ := set $config "mcp_servers" (merge $existing $mcp) -}}
 {{- end -}}
+{{- $skills := .Values.hermesAgent.skills -}}
+{{- $soul := .Files.Get "SOUL.md" -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -18,6 +20,10 @@ data:
   # at runtime against the container's env vars.
   config.yaml: |
     {{- toYaml $config | nindent 4 }}
+  # Mounted read-only at /opt/data/SOUL.md via subPath. The agent cannot
+  # mutate its own system prompt; bump via chart deploy.
+  SOUL.md: |
+    {{- $soul | nindent 4 }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -71,8 +77,9 @@ spec:
       labels:
         {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 8 }}
       annotations:
-        # Roll pods when the rendered config changes.
-        checksum/config: {{ toYaml $config | sha256sum }}
+        # Roll pods when the rendered config or SOUL.md change. The skills
+        # bundle is rolled implicitly by changes to its image:tag.
+        checksum/config: {{ printf "%s\n%s" (toYaml $config) $soul | sha256sum }}
     spec:
       initContainers:
         # Overwrite /opt/data/config.yaml with the chart-rendered config on
@@ -90,6 +97,23 @@ spec:
             - name: config
               mountPath: /mnt/config
               readOnly: true
+        {{- if $skills.enabled }}
+        # Copy the hermes-skills image's /skills/ tree into a pod-local
+        # emptyDir, which the main container mounts read-only over
+        # /opt/data/skills/{{ $skills.category }}/ as an overlay over the PVC.
+        # The chart owns that category subtree; user/agent-authored skills in
+        # other categories on the PVC remain writable.
+        - name: init-skills
+          image: "{{ $skills.image.repository }}:{{ $skills.image.tag }}"
+          imagePullPolicy: {{ $skills.image.pullPolicy }}
+          command:
+            - sh
+            - -euc
+            - cp -a /skills/. /mnt/skills/
+          volumeMounts:
+            - name: skills
+              mountPath: /mnt/skills
+        {{- end }}
       containers:
         - name: hermes-agent
           image: "{{ .Values.hermesAgent.image.repository }}:{{ .Values.hermesAgent.image.tag }}"
@@ -141,6 +165,23 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
+            # Single-file overlay at /opt/data/SOUL.md. subPath mounts a single
+            # configmap key in place over whatever the PVC has there; readOnly
+            # so the agent cannot rewrite its own system prompt at runtime.
+            # The checksum/config annotation rolls the pod when SOUL.md
+            # changes (subPath mounts don't auto-refresh).
+            - name: config
+              mountPath: /opt/data/SOUL.md
+              subPath: SOUL.md
+              readOnly: true
+            {{- if $skills.enabled }}
+            # Overlay over /opt/data/skills/<category>/. Mounting deeper than
+            # the `data` mount shadows that subpath in the PVC; readOnly so
+            # the agent can't mutate chart-bundled skills.
+            - name: skills
+              mountPath: /opt/data/skills/{{ $skills.category }}
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.hermesAgent.resources | nindent 12 }}
       volumes:
@@ -150,3 +191,7 @@ spec:
         - name: config
           configMap:
             name: hermes-agent-config
+        {{- if $skills.enabled }}
+        - name: skills
+          emptyDir: {}
+        {{- end }}

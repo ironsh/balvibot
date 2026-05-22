@@ -82,6 +82,18 @@ hermesAgent:
   # MAIL_INDEXER_MCP_TOKEN are injected so hermes resolves them at runtime.
   mailIndexer:
     enabled: true
+  # Chart-bundled built-in hermes skills. The hermes-skills image is a tiny
+  # busybox-based bundle whose contents are copied by an init container into
+  # an emptyDir and then mounted read-only over /opt/data/skills/<category>/
+  # in the main container — an overlay over the PVC, so user/agent-authored
+  # skills in other categories remain writable.
+  skills:
+    enabled: true
+    category: philanthropy
+    image:
+      repository: philanthropy-os/hermes-skills
+      tag: 0.2.0
+      pullPolicy: IfNotPresent
   # Signal integration. Leave `account` empty to disable: when unset, no
   # SIGNAL_* env vars are emitted and hermes runs without a Signal dependency.
   # SIGNAL_HTTP_URL is derived from the in-cluster signal-cli Service.
