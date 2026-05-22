@@ -70,6 +70,18 @@ hermesAgent:
     API_SERVER_HOST: "0.0.0.0"
     HERMES_DASHBOARD: "1"
     GATEWAY_ALLOW_ALL_USERS: "true"
+  # Rendered verbatim into /opt/data/config.yaml on every pod start by an init
+  # container, so the agent boots ready-to-go (no `hermes-agent setup` needed).
+  # Secrets (API keys) are injected via envFrom -> hermes-agent-secrets.
+  config:
+    model:
+      provider: anthropic
+      default: claude-opus-4-7
+  # mail-indexer MCP integration. When enabled, an mcp_servers.mail-indexer
+  # entry is merged into the rendered config.yaml, and MAIL_INDEXER_MCP_URL /
+  # MAIL_INDEXER_MCP_TOKEN are injected so hermes resolves them at runtime.
+  mailIndexer:
+    enabled: true
   # Signal integration. Leave `account` empty to disable: when unset, no
   # SIGNAL_* env vars are emitted and hermes runs without a Signal dependency.
   # SIGNAL_HTTP_URL is derived from the in-cluster signal-cli Service.

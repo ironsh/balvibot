@@ -74,16 +74,15 @@ just bootstrap-secrets
 
 The recipe is idempotent — re-run it any time to roll a value.
 
-After first deploy, populate the hermes-agent data volume (`config.yaml`,
-`SOUL.md`) by running the agent's interactive setup:
+The hermes-agent pod renders `/opt/data/config.yaml` from
+`hermesAgent.config` (in `values.yaml`) via an init container on every start,
+so no `hermes-agent setup` is needed — the pod boots ready. The gateway API is
+reachable at `hermes-agent.philanthropy-os.svc.cluster.local:8642`.
 
-```sh
-POD=$(kubectl -n philanthropy-os get pod -l app.kubernetes.io/name=hermes-agent -o name)
-kubectl -n philanthropy-os exec -it "$POD" -- hermes-agent setup
-```
-
-The gateway API is then reachable at
-`hermes-agent.philanthropy-os.svc.cluster.local:8642`.
+When `hermesAgent.mailIndexer.enabled` is true (default), an
+`mcp_servers.mail-indexer` entry is merged into the rendered config and the
+mail-indexer URL + bearer token are exposed as `MAIL_INDEXER_MCP_URL` /
+`MAIL_INDEXER_MCP_TOKEN` env vars (resolved by hermes at runtime).
 
 ## protonmail-bridge first-time login
 

@@ -14,3 +14,7 @@ app.kubernetes.io/name: {{ .name }}
 {{- define "philos.signalCli.httpUrl" -}}
 {{- printf "http://signal-cli.%s.svc.cluster.local:%v" .Release.Namespace .Values.signalCli.ports.http -}}
 {{- end -}}
+
+{{- define "philos.mailIndexer.mcpUrl" -}}
+{{- printf "http://mail-indexer.%s.svc.cluster.local:%v/mcp" .Release.Namespace .Values.mailIndexer.ports.mcp -}}
+{{- end -}}

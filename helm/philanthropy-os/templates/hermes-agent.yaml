@@ -1,3 +1,24 @@
+{{- $config := deepCopy .Values.hermesAgent.config -}}
+{{- if .Values.hermesAgent.mailIndexer.enabled -}}
+{{-   $mcp := dict "mail-indexer" (dict
+        "url" "${MAIL_INDEXER_MCP_URL}"
+        "headers" (dict "Authorization" "Bearer ${MAIL_INDEXER_MCP_TOKEN}")) -}}
+{{-   $existing := default dict $config.mcp_servers -}}
+{{-   $_ := set $config "mcp_servers" (merge $existing $mcp) -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-agent-config
+  labels:
+    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+data:
+  # Written to /opt/data/config.yaml verbatim on every pod start by the
+  # render-config init container. `${VAR}` placeholders are resolved by hermes
+  # at runtime against the container's env vars.
+  config.yaml: |
+    {{- toYaml $config | nindent 4 }}
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -9,7 +30,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      # Holds .env, config.yaml, SOUL.md, and sessions/memories/skills/logs.
+      # Holds config.yaml, SOUL.md, and sessions/memories/skills/logs.
       storage: {{ .Values.hermesAgent.storage }}
 ---
 apiVersion: v1
@@ -49,7 +70,26 @@ spec:
     metadata:
       labels:
         {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 8 }}
+      annotations:
+        # Roll pods when the rendered config changes.
+        checksum/config: {{ toYaml $config | sha256sum }}
     spec:
+      initContainers:
+        # Overwrite /opt/data/config.yaml with the chart-rendered config on
+        # every pod start, so the agent boots ready-to-go without any
+        # interactive `hermes-agent setup`.
+        - name: render-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -euc
+            - cp /mnt/config/config.yaml /opt/data/config.yaml
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: config
+              mountPath: /mnt/config
+              readOnly: true
       containers:
         - name: hermes-agent
           image: "{{ .Values.hermesAgent.image.repository }}:{{ .Values.hermesAgent.image.tag }}"
@@ -64,6 +104,15 @@ spec:
             {{- range $k, $v := .Values.hermesAgent.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}
+            {{- end }}
+            {{- if .Values.hermesAgent.mailIndexer.enabled }}
+            - name: MAIL_INDEXER_MCP_URL
+              value: {{ include "philos.mailIndexer.mcpUrl" . | quote }}
+            - name: MAIL_INDEXER_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mail-indexer-secrets
+                  key: MCP_BEARER_TOKEN
             {{- end }}
             {{- if .Values.hermesAgent.signal.account }}
             - name: SIGNAL_HTTP_URL
@@ -98,3 +147,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: hermes-agent-data
+        - name: config
+          configMap:
+            name: hermes-agent-config
