@@ -19,6 +19,15 @@ Kubernetes manifests for the philanthropy-os services, packaged as a Helm chart.
   hermes skills (see `docker/hermes-skills/skills/`). Pulled by an init
   container in the hermes-agent pod and mounted read-only as an overlay over
   `/opt/data/skills/<category>/`.
+- **iron-proxy** — [`ironsh/iron-proxy`](https://docs.iron.sh) egress firewall,
+  run as a dedicated pod (Deployment + Service with a pinned ClusterIP).
+  Hermes-agent's `dnsConfig` is overridden to use iron-proxy as its sole
+  nameserver, and a NetworkPolicy on the hermes pod denies every egress
+  destination except iron-proxy and the in-namespace MCP services. iron-proxy
+  MITM-decrypts the TLS using a bootstrapped CA, enforces a default-deny
+  domain allowlist, and replaces static placeholder API tokens with the real
+  LLM-provider keys — so the hermes container never sees the real
+  credentials and cannot reach the internet by any path other than the proxy.
 
 ## Layout
 
@@ -75,9 +84,24 @@ cp .env.example .env
 # edit .env, fill in PHILOS_* values
 
 just bootstrap-secrets
+just bootstrap-iron-proxy-ca
 ```
 
-The recipe is idempotent — re-run it any time to roll a value.
+`bootstrap-secrets` is idempotent — re-run any time to roll a value. It writes
+three Secrets: `hermes-agent-secrets` (API_SERVER_KEY only), `iron-proxy-secrets`
+(REAL_ANTHROPIC_API_KEY / REAL_OPENAI_API_KEY — the actual provider keys,
+visible only to the iron-proxy sidecar), and `mail-indexer-secrets`
+(IMAP credentials + MCP bearer token).
+
+`bootstrap-iron-proxy-ca` generates a long-lived CA keypair (10y) into the
+`iron-proxy-ca` Secret on first run and reuses it on subsequent runs, so the
+CA stays stable across helm upgrades. To rotate, delete the Secret and re-run:
+
+```sh
+kubectl -n philanthropy-os delete secret iron-proxy-ca
+just bootstrap-iron-proxy-ca
+kubectl -n philanthropy-os rollout restart deploy/hermes-agent
+```
 
 The hermes-agent pod renders `/opt/data/config.yaml` from
 `hermesAgent.config` (in `values.yaml`) via an init container on every start,
@@ -103,6 +127,49 @@ into a pod-local emptyDir, and mounts it read-only over
 so user/agent-authored skills in other categories remain writable. Roll the
 skill bundle by bumping `hermesAgent.skills.image.tag` in `values.yaml` and
 running `just build-hermes-skills upload-hermes-skills deploy`.
+
+## iron-proxy egress firewall
+
+Hermes-agent's egress is funnelled through an [iron-proxy](https://docs.iron.sh)
+pod (`templates/iron-proxy.yaml`, rendered from top-level `ironProxy.*` in
+`values.yaml`). Three independent mechanisms combine to make the proxy
+unbypassable:
+
+1. **dnsConfig override.** The hermes pod sets `dnsPolicy: None` and points
+   its `nameservers` at the iron-proxy Service ClusterIP (pinned via
+   `ironProxy.clusterIP`, default `10.43.42.42`). iron-proxy's DNS server
+   returns its own ClusterIP for every non-passthrough lookup, so a plain
+   `connect(api.anthropic.com, 443)` lands transparently on iron-proxy:443.
+   `*.svc.cluster.local` and `*.cluster.local` pass through to coredns so
+   in-cluster Service resolution still works.
+2. **NetworkPolicy.** `templates/network-policies.yaml` denies all hermes
+   egress except: iron-proxy (DNS, HTTP, HTTPS) and the in-namespace MCP
+   services (mail-indexer:8080, signal-cli:8080). Even if hermes ignores
+   its DNS and hard-codes `1.1.1.1`, the CNI drops the packet. A second
+   policy locks iron-proxy ingress to hermes pods only. Requires a
+   NetworkPolicy-enforcing CNI — k3s ships kube-router for this since
+   v1.21, so stock k3s installs work out of the box.
+3. **Default-deny allowlist inside iron-proxy.** Even traffic that
+   successfully reaches iron-proxy is rejected unless its destination is
+   in `ironProxy.allowedDomains` — currently `api.anthropic.com` and
+   `api.openai.com`. Expand by editing the list and redeploying.
+
+Hermes trusts the iron-proxy CA via `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` (all four set, so MITM verifies
+regardless of which TLS stack hermes uses internally). The CA cert is
+mounted into the hermes container as a single-file `subPath`; `ca.key` is
+projected only into the iron-proxy pod.
+
+iron-proxy also runs a **secret-swap** transform: hermes holds the static
+strings `ironproxy-{anthropic,openai}-placeholder` as its API keys, and
+iron-proxy matches them in the `authorization` / `x-api-key` headers and
+substitutes the real values from `iron-proxy-secrets` before forwarding to
+the upstream provider. The real keys never appear in the hermes pod.
+
+To disable the whole pipeline (e.g. to debug a transient proxy issue), set
+`ironProxy.enabled=false` in `values.local.yaml` and redeploy; you'll then
+also need to bootstrap an `hermes-agent-secrets` that includes the real
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` directly.
 
 ## protonmail-bridge first-time login
 

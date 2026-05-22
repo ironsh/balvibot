@@ -40,6 +40,54 @@ mailIndexer:
   # `just bootstrap-secrets` (PHILOS_MAIL_INDEXER_MCP_TOKEN).
   grantees: ""
 
+ironProxy:
+  enabled: true
+  image:
+    repository: ironsh/iron-proxy
+    tag: latest
+    pullPolicy: IfNotPresent
+  # Pinned ClusterIP. Required because hermes-agent's dnsConfig.nameservers is
+  # rendered into the Pod spec at chart-template time (Kubernetes requires
+  # literal IPs there), and iron-proxy's own DNS server hands out this same
+  # IP for every non-passthrough lookup — so client and server must agree on
+  # it ahead of time. k3s defaults the Service CIDR to 10.43.0.0/16; pick any
+  # free IP in your cluster's range.
+  clusterIP: "10.43.42.42"
+  # Cluster DNS resolver iron-proxy forwards passthrough lookups to (i.e.
+  # *.svc.cluster.local — anything that should resolve to a real in-cluster
+  # IP, not be funneled through the proxy). k3s default coredns ClusterIP is
+  # 10.43.0.10.
+  upstreamResolver: "10.43.0.10:53"
+  ports:
+    dns: 53
+    http: 80
+    https: 443
+    metrics: 9090
+  # Default-deny egress allowlist. Hermes can only reach hosts on this list;
+  # everything else terminates inside iron-proxy with a 403 / refused CONNECT.
+  allowedDomains:
+    - "api.anthropic.com"
+    - "api.openai.com"
+    # PyPI: pypi.org serves the index/JSON API, files.pythonhosted.org serves
+    # the actual wheel/sdist downloads. Both are needed for `pip install` to
+    # work; allowing only one stalls at the download step.
+    - "pypi.org"
+    - "files.pythonhosted.org"
+  # Static placeholders hermes sends as its API key; iron-proxy matches them
+  # in the authorization / x-api-key headers and substitutes the real value
+  # from iron-proxy-secrets at the wire. Safe to commit: they grant nothing
+  # on their own and never leave the cluster.
+  proxyTokens:
+    anthropic: "ironproxy-anthropic-placeholder"
+    openai: "ironproxy-openai-placeholder"
+  resources:
+    requests:
+      cpu: "50m"
+      memory: 64Mi
+    limits:
+      cpu: "500m"
+      memory: 256Mi
+
 signalCli:
   image:
     repository: philanthropy-os/signal-cli

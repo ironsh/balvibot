@@ -1,0 +1,196 @@
+{{- $ip := .Values.ironProxy -}}
+{{- if $ip.enabled -}}
+{{- /*
+iron-proxy runs as a dedicated pod (not a sidecar) so its egress can be
+left wide open while hermes-agent's egress is locked down by NetworkPolicy
+(see network-policies.yaml). The CA keypair is mounted from the
+`iron-proxy-ca` Secret created out-of-band by `just bootstrap-iron-proxy-ca`;
+the real LLM API keys come from `iron-proxy-secrets` (see `just bootstrap-secrets`).
+
+Clients (hermes-agent) point dnsPolicy at the Service's pinned ClusterIP; the
+DNS server here returns that same IP for any non-passthrough lookup, so all
+egress TCP connections land back here on :443 / :80 for MITM.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iron-proxy-config
+  labels:
+    {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
+data:
+  proxy.yaml: |
+    dns:
+      listen: "0.0.0.0:{{ $ip.ports.dns }}"
+      # Returned for every lookup that doesn't match passthrough — i.e. the
+      # public internet. Forces the client to dial iron-proxy on the proxy
+      # port instead of the real upstream IP.
+      proxy_ip: {{ $ip.clusterIP | quote }}
+      # In-cluster names resolve normally so MCP / Service traffic still
+      # works without being funneled through the proxy.
+      upstream_resolver: {{ $ip.upstreamResolver | quote }}
+      passthrough:
+        - "*.svc.cluster.local"
+        - "*.cluster.local"
+
+    proxy:
+      http_listen: "0.0.0.0:{{ $ip.ports.http }}"
+      https_listen: "0.0.0.0:{{ $ip.ports.https }}"
+      upstream_deny_cidrs:
+        - "169.254.169.254/32"   # AWS IMDSv1/v2
+        - "fd00:ec2::254/128"    # AWS IPv6 IMDS
+        - "127.0.0.0/8"          # loopback
+        - "::1/128"              # loopback (v6)
+        - "10.0.0.0/8"           # RFC1918 — block proxy itself from reaching
+        - "172.16.0.0/12"        # internal cluster / VPC ranges via the
+        - "192.168.0.0/16"       # MITM path; legit in-cluster traffic uses
+                                 # passthrough above, not this code path.
+
+    tls:
+      mode: mitm
+      ca_cert: /etc/iron-proxy/ca/ca.crt
+      ca_key: /etc/iron-proxy/ca/ca.key
+      leaf_cert_expiry_hours: 72
+
+    transforms:
+      - name: allowlist
+        config:
+          domains:
+          {{- range $ip.allowedDomains }}
+            - {{ . | quote }}
+          {{- end }}
+
+      - name: secrets
+        config:
+          secrets:
+            - source:
+                type: env
+                var: REAL_ANTHROPIC_API_KEY
+              replace:
+                proxy_value: {{ $ip.proxyTokens.anthropic | quote }}
+                match_headers: ["x-api-key", "authorization"]
+                require: true
+              rules:
+                - host: "api.anthropic.com"
+            - source:
+                type: env
+                var: REAL_OPENAI_API_KEY
+              replace:
+                proxy_value: {{ $ip.proxyTokens.openai | quote }}
+                match_headers: ["authorization"]
+                require: true
+              rules:
+                - host: "api.openai.com"
+
+    metrics:
+      listen: "0.0.0.0:{{ $ip.ports.metrics }}"
+
+    log:
+      level: info
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iron-proxy
+  labels:
+    {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  type: ClusterIP
+  # Pinned: hermes-agent.dnsConfig.nameservers is rendered with this value as
+  # a literal IP, and iron-proxy's DNS server hands out this IP for every
+  # non-passthrough lookup. Changing it requires re-rolling the hermes pod.
+  clusterIP: {{ $ip.clusterIP | quote }}
+  selector:
+    {{- include "philos.selectorLabels" (dict "name" "iron-proxy") | nindent 4 }}
+  ports:
+    - name: dns-udp
+      port: {{ $ip.ports.dns }}
+      protocol: UDP
+      targetPort: dns-udp
+    - name: dns-tcp
+      port: {{ $ip.ports.dns }}
+      protocol: TCP
+      targetPort: dns-tcp
+    - name: http
+      port: {{ $ip.ports.http }}
+      protocol: TCP
+      targetPort: http
+    - name: https
+      port: {{ $ip.ports.https }}
+      protocol: TCP
+      targetPort: https
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iron-proxy
+  labels:
+    {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "iron-proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 8 }}
+      annotations:
+        # Roll the pod when proxy.yaml changes (it's read once at startup).
+        checksum/config: {{ toYaml $ip | sha256sum }}
+    spec:
+      containers:
+        - name: iron-proxy
+          image: "{{ $ip.image.repository }}:{{ $ip.image.tag }}"
+          imagePullPolicy: {{ $ip.image.pullPolicy }}
+          args: ["-config", "/etc/iron-proxy/proxy.yaml"]
+          env:
+            # Real LLM provider keys — only this pod sees them. The matching
+            # placeholder strings in hermes-agent's env get swapped for these
+            # at the wire by the `secrets` transform above.
+            - name: REAL_ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: iron-proxy-secrets
+                  key: REAL_ANTHROPIC_API_KEY
+                  optional: true
+            - name: REAL_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: iron-proxy-secrets
+                  key: REAL_OPENAI_API_KEY
+                  optional: true
+          ports:
+            - name: dns-udp
+              containerPort: {{ $ip.ports.dns }}
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: {{ $ip.ports.dns }}
+              protocol: TCP
+            - name: http
+              containerPort: {{ $ip.ports.http }}
+              protocol: TCP
+            - name: https
+              containerPort: {{ $ip.ports.https }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ $ip.ports.metrics }}
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/iron-proxy
+              readOnly: true
+            - name: ca
+              mountPath: /etc/iron-proxy/ca
+              readOnly: true
+          resources:
+            {{- toYaml $ip.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: iron-proxy-config
+        - name: ca
+          secret:
+            secretName: iron-proxy-ca
+{{- end -}}

@@ -1,0 +1,88 @@
+{{- $ip := .Values.ironProxy -}}
+{{- if $ip.enabled -}}
+{{- /*
+NetworkPolicies that close the loop on the iron-proxy egress firewall.
+
+Without these, the dnsConfig override on the hermes pod is just a hint — a
+compromised hermes could still bypass iron-proxy by dialing 1.1.1.1 directly
+or talking to a hard-coded IP. With these in place, the kernel-level CNI
+enforcer rejects any hermes egress that doesn't go to iron-proxy or one of
+the in-namespace MCP services, regardless of what the hermes process tries.
+
+Requires a NetworkPolicy-enforcing CNI. k3s ships kube-router for this by
+default since v1.21, so no extra setup is needed on a stock k3s install.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hermes-agent-egress
+  labels:
+    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # iron-proxy: DNS (UDP+TCP), HTTP, HTTPS. Everything external goes through
+    # this single path — that's the whole point of the firewall.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "iron-proxy") | nindent 14 }}
+      ports:
+        - protocol: UDP
+          port: {{ $ip.ports.dns }}
+        - protocol: TCP
+          port: {{ $ip.ports.dns }}
+        - protocol: TCP
+          port: {{ $ip.ports.http }}
+        - protocol: TCP
+          port: {{ $ip.ports.https }}
+    # mail-indexer MCP. Plain HTTP, in-cluster only.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.mailIndexer.ports.mcp }}
+    # signal-cli daemon. Plain HTTP, in-cluster only.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "signal-cli") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.signalCli.ports.http }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iron-proxy-ingress
+  labels:
+    {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "iron-proxy") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only hermes-agent reaches the proxy. Nothing else in the namespace —
+    # and nothing outside it — has any business talking to iron-proxy.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 14 }}
+      ports:
+        - protocol: UDP
+          port: {{ $ip.ports.dns }}
+        - protocol: TCP
+          port: {{ $ip.ports.dns }}
+        - protocol: TCP
+          port: {{ $ip.ports.http }}
+        - protocol: TCP
+          port: {{ $ip.ports.https }}
+{{- end -}}

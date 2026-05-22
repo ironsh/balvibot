@@ -25,10 +25,10 @@ philos_values_local := "helm/philanthropy-os/values.local.yaml"
 default:
     @just --list
 
-# One-shot bring-up: bootstrap secrets, build & ship both images to the remote
-# k3s node, and install the helm chart. Requires PHILOS_K3S_NODE plus all the
-# PHILOS_* secret env vars (see `bootstrap-secrets`).
-up: bootstrap-secrets ship-protonmail-bridge ship-mail-indexer ship-signal-cli ship-hermes-skills deploy
+# One-shot bring-up: bootstrap secrets + iron-proxy CA, build & ship images
+# to the remote k3s node, and install the helm chart. Requires PHILOS_K3S_NODE
+# plus all the PHILOS_* secret env vars (see `bootstrap-secrets`).
+up: bootstrap-secrets bootstrap-iron-proxy-ca ship-protonmail-bridge ship-mail-indexer ship-signal-cli ship-hermes-skills deploy
 
 # Install/upgrade the helm release. grantees.json is injected via --set-file so
 # the PII never lands in values.yaml or git. values.local.yaml is layered on top
@@ -125,9 +125,10 @@ ship-hermes-skills:
 # Create/refresh the Kubernetes Secrets for each service from the operator's
 # shell env. Idempotent: re-run after changing values to roll the secret.
 # Required env vars (all PHILOS_-prefixed):
-#   hermes-agent: PHILOS_API_SERVER_KEY + at least one of
-#                 PHILOS_ANTHROPIC_API_KEY / PHILOS_OPENAI_API_KEY
-#   mail-indexer: PHILOS_IMAP_USER, PHILOS_IMAP_PASS, PHILOS_MAIL_INDEXER_MCP_TOKEN
+#   hermes-agent:  PHILOS_API_SERVER_KEY
+#   iron-proxy:    at least one of PHILOS_ANTHROPIC_API_KEY / PHILOS_OPENAI_API_KEY
+#                  (real LLM keys — hermes itself never sees them)
+#   mail-indexer:  PHILOS_IMAP_USER, PHILOS_IMAP_PASS, PHILOS_MAIL_INDEXER_MCP_TOKEN
 bootstrap-secrets:
     @set -eu; \
         missing=(); \
@@ -140,17 +141,21 @@ bootstrap-secrets:
         if [ "${#missing[@]}" -gt 0 ]; then \
             echo "missing required env vars: ${missing[*]}" >&2; exit 1; \
         fi; \
-        hermes_args=(--from-literal=API_SERVER_KEY="$PHILOS_API_SERVER_KEY"); \
+        iron_args=(); \
         if [ -n "${PHILOS_ANTHROPIC_API_KEY:-}" ]; then \
-            hermes_args+=(--from-literal=ANTHROPIC_API_KEY="$PHILOS_ANTHROPIC_API_KEY"); \
+            iron_args+=(--from-literal=REAL_ANTHROPIC_API_KEY="$PHILOS_ANTHROPIC_API_KEY"); \
         fi; \
         if [ -n "${PHILOS_OPENAI_API_KEY:-}" ]; then \
-            hermes_args+=(--from-literal=OPENAI_API_KEY="$PHILOS_OPENAI_API_KEY"); \
+            iron_args+=(--from-literal=REAL_OPENAI_API_KEY="$PHILOS_OPENAI_API_KEY"); \
         fi; \
         kubectl create namespace {{philos_namespace}} --dry-run=client -o yaml | kubectl apply -f -; \
         kubectl create secret generic hermes-agent-secrets \
             --namespace={{philos_namespace}} \
-            "${hermes_args[@]}" \
+            --from-literal=API_SERVER_KEY="$PHILOS_API_SERVER_KEY" \
+            --dry-run=client -o yaml | kubectl apply -f -; \
+        kubectl create secret generic iron-proxy-secrets \
+            --namespace={{philos_namespace}} \
+            "${iron_args[@]}" \
             --dry-run=client -o yaml | kubectl apply -f -; \
         kubectl create secret generic mail-indexer-secrets \
             --namespace={{philos_namespace}} \
@@ -158,3 +163,28 @@ bootstrap-secrets:
             --from-literal=IMAP_PASS="$PHILOS_IMAP_PASS" \
             --from-literal=MCP_BEARER_TOKEN="$PHILOS_MAIL_INDEXER_MCP_TOKEN" \
             --dry-run=client -o yaml | kubectl apply -f -
+
+# Generate the iron-proxy CA keypair on first run and store it in the
+# `iron-proxy-ca` Secret. Skipped if the Secret already exists, so re-running
+# is safe and the CA stays stable across helm upgrades (any drift would force
+# every workload to re-trust a new cert). To rotate, delete the Secret first.
+bootstrap-iron-proxy-ca:
+    @set -eu; \
+        kubectl create namespace {{philos_namespace}} --dry-run=client -o yaml | kubectl apply -f -; \
+        if kubectl -n {{philos_namespace}} get secret iron-proxy-ca >/dev/null 2>&1; then \
+            echo "iron-proxy-ca secret already exists; reusing"; \
+            exit 0; \
+        fi; \
+        tmpdir=$(mktemp -d); \
+        trap 'rm -rf "$tmpdir"' EXIT; \
+        openssl genrsa -out "$tmpdir/ca.key" 4096 >/dev/null 2>&1; \
+        openssl req -x509 -new -nodes \
+            -key "$tmpdir/ca.key" -sha256 -days 3650 \
+            -subj "/CN=philanthropy-os iron-proxy CA" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign" \
+            -out "$tmpdir/ca.crt" >/dev/null 2>&1; \
+        kubectl -n {{philos_namespace}} create secret generic iron-proxy-ca \
+            --from-file=ca.crt="$tmpdir/ca.crt" \
+            --from-file=ca.key="$tmpdir/ca.key"; \
+        echo "iron-proxy-ca created (CN=philanthropy-os iron-proxy CA, 10y)"

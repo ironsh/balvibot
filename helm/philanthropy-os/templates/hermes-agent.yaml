@@ -7,6 +7,7 @@
 {{-   $_ := set $config "mcp_servers" (merge $existing $mcp) -}}
 {{- end -}}
 {{- $skills := .Values.hermesAgent.skills -}}
+{{- $ip := .Values.ironProxy -}}
 {{- $soul := .Files.Get "SOUL.md" -}}
 apiVersion: v1
 kind: ConfigMap
@@ -77,10 +78,39 @@ spec:
       labels:
         {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 8 }}
       annotations:
-        # Roll pods when the rendered config or SOUL.md change. The skills
-        # bundle is rolled implicitly by changes to its image:tag.
-        checksum/config: {{ printf "%s\n%s" (toYaml $config) $soul | sha256sum }}
+        # Roll pods when the rendered config, SOUL.md, or ironProxy values
+        # change. (The skills bundle rolls implicitly via its image tag; the
+        # iron-proxy CA Secret is intentionally not in this hash so a CA
+        # rotation requires an explicit `kubectl rollout restart`.)
+        checksum/config: {{ printf "%s\n%s\n%s" (toYaml $config) $soul (toYaml $ip) | sha256sum }}
     spec:
+      {{- if $ip.enabled }}
+      # Route DNS through iron-proxy. iron-proxy returns its own ClusterIP for
+      # any non-passthrough lookup and forwards *.svc.cluster.local to coredns,
+      # so MCP/Service resolution still works. Combined with the egress
+      # NetworkPolicy in network-policies.yaml, hermes cannot exfiltrate to
+      # any host except those iron-proxy explicitly allowlists.
+      #
+      # ndots:1 (not the kube default of 5) because every in-cluster URL we
+      # hand hermes is already a FQDN (see philos.mailIndexer.mcpUrl /
+      # philos.signalCli.httpUrl helpers). With ndots:5, glibc walks the
+      # search list before trying the absolute name, producing a cascade of
+      # noisy passthrough-NXDOMAIN warnings in iron-proxy for queries like
+      # `signal-cli.philanthropy-os.svc.cluster.local.cluster.local`. ndots:1
+      # tries FQDNs absolute first and only falls back to the search list
+      # for genuine short names (which we don't use here).
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - {{ $ip.clusterIP | quote }}
+        searches:
+          - {{ printf "%s.svc.cluster.local" .Release.Namespace | quote }}
+          - "svc.cluster.local"
+          - "cluster.local"
+        options:
+          - name: ndots
+            value: "1"
+      {{- end }}
       initContainers:
         # Overwrite /opt/data/config.yaml with the chart-rendered config on
         # every pod start, so the agent boots ready-to-go without any
@@ -158,8 +188,33 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- if $ip.enabled }}
+            # Trust the iron-proxy CA so MITM'd TLS verifies. Set vars for the
+            # major TLS stacks hermes might use; harmless when the binary
+            # ignores them. No HTTPS_PROXY needed: egress reaches iron-proxy
+            # via the dnsPolicy override above — the proxy's DNS server hands
+            # out its own ClusterIP for every non-passthrough lookup, so
+            # standard connect(api.anthropic.com, 443) lands on iron-proxy:443
+            # transparently.
+            - name: SSL_CERT_FILE
+              value: /etc/ssl/iron-proxy/ca.crt
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/ssl/iron-proxy/ca.crt
+            - name: CURL_CA_BUNDLE
+              value: /etc/ssl/iron-proxy/ca.crt
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/ssl/iron-proxy/ca.crt
+            # Hermes only sees these static placeholders — iron-proxy swaps them
+            # for the real keys (held in iron-proxy-secrets) at the wire.
+            - name: ANTHROPIC_API_KEY
+              value: {{ $ip.proxyTokens.anthropic | quote }}
+            - name: OPENAI_API_KEY
+              value: {{ $ip.proxyTokens.openai | quote }}
+            {{- end }}
           envFrom:
-            # API_SERVER_KEY + provider API keys (see secrets.env).
+            # API_SERVER_KEY (gateway auth). Real provider keys live in
+            # iron-proxy-secrets and only the iron-proxy pod reads them —
+            # hermes itself never sees them when ironProxy.enabled.
             - secretRef:
                 name: hermes-agent-secrets
           volumeMounts:
@@ -182,6 +237,13 @@ spec:
               mountPath: /opt/data/skills/{{ $skills.category }}
               readOnly: true
             {{- end }}
+            {{- if $ip.enabled }}
+            # CA cert only — never mount ca.key into the hermes container.
+            - name: iron-proxy-ca
+              mountPath: /etc/ssl/iron-proxy/ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.hermesAgent.resources | nindent 12 }}
       volumes:
@@ -194,4 +256,14 @@ spec:
         {{- if $skills.enabled }}
         - name: skills
           emptyDir: {}
+        {{- end }}
+        {{- if $ip.enabled }}
+        - name: iron-proxy-ca
+          secret:
+            secretName: iron-proxy-ca
+            # Hermes only ever needs the cert. Drop the key from the projected
+            # volume so even a container escape can't read it via /etc/ssl/...
+            items:
+              - key: ca.crt
+                path: ca.crt
         {{- end }}
