@@ -19,7 +19,6 @@ mailIndexer:
   ports:
     mcp: 8080
   env:
-    IMAP_ADDR: "protonmail-bridge.philanthropy-os.svc.cluster.local:143"
     IMAP_TLS: "starttls"
     MAIL_DB_PATH: "/opt/data/mail.db"
     MAIL_ATTACHMENTS_DIR: "/opt/data/attachments"
@@ -73,8 +72,8 @@ hermesAgent:
     GATEWAY_ALLOW_ALL_USERS: "true"
   # Signal integration. Leave `account` empty to disable: when unset, no
   # SIGNAL_* env vars are emitted and hermes runs without a Signal dependency.
+  # SIGNAL_HTTP_URL is derived from the in-cluster signal-cli Service.
   signal:
-    httpUrl: "http://signal-cli.philanthropy-os.svc.cluster.local:8080"
     account: ""              # E.164 phone number, e.g. "+1234567890"
     allowedUsers: ""         # comma-separated E.164 numbers or UUIDs
     groupAllowedUsers: ""    # comma-separated group IDs, or "*" for all; omit to disable groups

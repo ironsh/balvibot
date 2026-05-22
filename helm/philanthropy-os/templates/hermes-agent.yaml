@@ -65,26 +65,24 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
-            {{- with .Values.hermesAgent.signal }}
-            {{- if .account }}
+            {{- if .Values.hermesAgent.signal.account }}
             - name: SIGNAL_HTTP_URL
-              value: {{ .httpUrl | quote }}
+              value: {{ include "philos.signalCli.httpUrl" . | quote }}
             - name: SIGNAL_ACCOUNT
-              value: {{ .account | quote }}
+              value: {{ .Values.hermesAgent.signal.account | quote }}
             - name: SIGNAL_REQUIRE_MENTION
-              value: {{ .requireMention | quote }}
-            {{- if .allowedUsers }}
+              value: {{ .Values.hermesAgent.signal.requireMention | quote }}
+            {{- with .Values.hermesAgent.signal.allowedUsers }}
             - name: SIGNAL_ALLOWED_USERS
-              value: {{ .allowedUsers | quote }}
+              value: {{ . | quote }}
             {{- end }}
-            {{- if .groupAllowedUsers }}
+            {{- with .Values.hermesAgent.signal.groupAllowedUsers }}
             - name: SIGNAL_GROUP_ALLOWED_USERS
-              value: {{ .groupAllowedUsers | quote }}
+              value: {{ . | quote }}
             {{- end }}
-            {{- if .homeChannel }}
+            {{- with .Values.hermesAgent.signal.homeChannel }}
             - name: SIGNAL_HOME_CHANNEL
-              value: {{ .homeChannel | quote }}
-            {{- end }}
+              value: {{ . | quote }}
             {{- end }}
             {{- end }}
           envFrom:

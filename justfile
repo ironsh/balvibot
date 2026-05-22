@@ -17,6 +17,7 @@ philos_namespace := "philanthropy-os"
 philos_release := "philanthropy-os"
 philos_chart := "helm/philanthropy-os"
 philos_grantees := "helm/philanthropy-os/grantees.json"
+philos_values_local := "helm/philanthropy-os/values.local.yaml"
 
 default:
     @just --list
@@ -27,12 +28,14 @@ default:
 up: bootstrap-secrets build-protonmail-bridge upload-protonmail-bridge build-mail-indexer upload-mail-indexer build-signal-cli upload-signal-cli deploy
 
 # Install/upgrade the helm release. grantees.json is injected via --set-file so
-# the PII never lands in values.yaml or git.
+# the PII never lands in values.yaml or git. values.local.yaml is layered on top
+# of the chart defaults when present (also gitignored).
 deploy:
     @[ -f "{{philos_grantees}}" ] || { echo "missing {{philos_grantees}} (copy {{philos_grantees}}.example and edit)" >&2; exit 1; }
-    helm upgrade --install {{philos_release}} {{philos_chart}} \
-        --namespace {{philos_namespace}} --create-namespace \
-        --set-file mailIndexer.grantees={{philos_grantees}}
+    @overlay=""; [ -f "{{philos_values_local}}" ] && overlay="-f {{philos_values_local}}"; \
+        helm upgrade --install {{philos_release}} {{philos_chart}} \
+            --namespace {{philos_namespace}} --create-namespace \
+            --set-file mailIndexer.grantees={{philos_grantees}} $overlay
 
 # Build a docker image pinned to linux/amd64 so it runs on x86_64 k3s nodes
 # regardless of the host architecture (e.g. Apple Silicon). Build context is

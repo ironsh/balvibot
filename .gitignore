@@ -3,3 +3,6 @@
 
 # Real grantee mapping (contains PII); only .example is checked in.
 **/grantees.json
+
+# Operator-local Helm overrides (may contain PII like phone numbers).
+helm/philanthropy-os/values.local.yaml

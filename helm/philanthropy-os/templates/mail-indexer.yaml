@@ -68,6 +68,8 @@ spec:
           image: "{{ .Values.mailIndexer.image.repository }}:{{ .Values.mailIndexer.image.tag }}"
           imagePullPolicy: {{ .Values.mailIndexer.image.pullPolicy }}
           env:
+            - name: IMAP_ADDR
+              value: {{ include "philos.protonmailBridge.imapAddr" . | quote }}
             {{- range $k, $v := .Values.mailIndexer.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}
