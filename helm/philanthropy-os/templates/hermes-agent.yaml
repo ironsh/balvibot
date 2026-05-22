@@ -84,6 +84,12 @@ spec:
         # rotation requires an explicit `kubectl rollout restart`.)
         checksum/config: {{ printf "%s\n%s\n%s" (toYaml $config) $soul (toYaml $ip) | sha256sum }}
     spec:
+      {{- with .Values.hermesAgent.runtimeClassName }}
+      # Run the pod inside a Kata Containers VM (lightweight VM-isolated
+      # sandbox) instead of a shared-kernel runc container. The named
+      # RuntimeClass is created by kata-deploy on each node it runs on.
+      runtimeClassName: {{ . | quote }}
+      {{- end }}
       {{- if $ip.enabled }}
       # Route DNS through iron-proxy. iron-proxy returns its own ClusterIP for
       # any non-passthrough lookup and forwards *.svc.cluster.local to coredns,

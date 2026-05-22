@@ -109,6 +109,10 @@ hermesAgent:
     repository: nousresearch/hermes-agent
     tag: latest
     pullPolicy: IfNotPresent
+  # RuntimeClass for the hermes pod. kata-deploy creates one RuntimeClass per
+  # shim it installs (e.g. kata-qemu, kata-clh, kata-fc). Set empty to use the
+  # node's default container runtime instead of a Kata VM.
+  runtimeClassName: kata-qemu
   storage: 5Gi
   ports:
     gateway: 8642
