@@ -6,6 +6,13 @@
 {{-   $existing := default dict $config.mcp_servers -}}
 {{-   $_ := set $config "mcp_servers" (merge $existing $mcp) -}}
 {{- end -}}
+{{- if .Values.hermesAgent.gdocsIndexer.enabled -}}
+{{-   $mcp := dict "gdocs-indexer" (dict
+        "url" "${GDOCS_INDEXER_MCP_URL}"
+        "headers" (dict "Authorization" "Bearer ${GDOCS_INDEXER_MCP_TOKEN}")) -}}
+{{-   $existing := default dict $config.mcp_servers -}}
+{{-   $_ := set $config "mcp_servers" (merge $existing $mcp) -}}
+{{- end -}}
 {{- $skills := .Values.hermesAgent.skills -}}
 {{- $ip := .Values.ironProxy -}}
 {{- $soul := .Files.Get "SOUL.md" -}}
@@ -173,6 +180,15 @@ spec:
                 secretKeyRef:
                   name: mail-indexer-secrets
                   key: MCP_BEARER_TOKEN
+            {{- end }}
+            {{- if .Values.hermesAgent.gdocsIndexer.enabled }}
+            - name: GDOCS_INDEXER_MCP_URL
+              value: {{ include "philos.gdocsIndexer.mcpUrl" . | quote }}
+            - name: GDOCS_INDEXER_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gdocs-indexer-secrets
+                  key: IRON_GDOCS_MCP_BEARER_TOKEN
             {{- end }}
             {{- if .Values.hermesAgent.signal.account }}
             - name: SIGNAL_HTTP_URL

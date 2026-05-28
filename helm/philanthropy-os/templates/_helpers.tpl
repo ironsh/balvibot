@@ -18,3 +18,7 @@ app.kubernetes.io/name: {{ .name }}
 {{- define "philos.mailIndexer.mcpUrl" -}}
 {{- printf "http://mail-indexer.%s.svc.cluster.local:%v/mcp" .Release.Namespace .Values.mailIndexer.ports.mcp -}}
 {{- end -}}
+
+{{- define "philos.gdocsIndexer.mcpUrl" -}}
+{{- printf "http://gdocs-indexer.%s.svc.cluster.local:%v/mcp" .Release.Namespace .Values.gdocsIndexer.ports.mcp -}}
+{{- end -}}

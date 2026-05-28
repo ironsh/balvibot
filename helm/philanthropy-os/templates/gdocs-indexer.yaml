@@ -1,0 +1,134 @@
+{{- $ip := .Values.ironProxy -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gdocs-indexer-data
+  labels:
+    {{- include "philos.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Holds gdocs.db (SQLite). Markdown content lives inline in the DB.
+      storage: {{ .Values.gdocsIndexer.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gdocs-indexer
+  labels:
+    {{- include "philos.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "philos.selectorLabels" (dict "name" "gdocs-indexer") | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ .Values.gdocsIndexer.ports.mcp }}
+      targetPort: mcp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gdocs-indexer
+  labels:
+    {{- include "philos.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    # The PVC is ReadWriteOnce, so a new pod cannot mount it while the old
+    # one still holds it. Recreate avoids the deadlock during rollouts.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "gdocs-indexer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "philos.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 8 }}
+      annotations:
+        # Roll the pod when iron-proxy egress wiring changes (CA cert is
+        # intentionally not in this hash so rotating it requires an explicit
+        # `kubectl rollout restart`).
+        checksum/iron-proxy: {{ toYaml $ip | sha256sum }}
+    spec:
+      {{- if $ip.enabled }}
+      # Egress to *.googleapis.com goes through iron-proxy: its DNS server
+      # returns its own ClusterIP for every non-passthrough lookup, and the
+      # NetworkPolicy below denies every other egress path. The indexer holds
+      # no Google credentials of its own; iron-proxy swaps the placeholder
+      # Bearer token for a fresh service-account access token at the wire.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - {{ $ip.clusterIP | quote }}
+        searches:
+          - {{ printf "%s.svc.cluster.local" .Release.Namespace | quote }}
+          - "svc.cluster.local"
+          - "cluster.local"
+        options:
+          - name: ndots
+            value: "1"
+      {{- end }}
+      containers:
+        - name: gdocs-indexer
+          image: "{{ .Values.gdocsIndexer.image.repository }}:{{ .Values.gdocsIndexer.image.tag }}"
+          imagePullPolicy: {{ .Values.gdocsIndexer.image.pullPolicy }}
+          args: ["run"]
+          env:
+            {{- range $k, $v := .Values.gdocsIndexer.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- if $ip.enabled }}
+            - name: IRON_PROXY_URL
+              value: {{ printf "https://%s" $ip.clusterIP | quote }}
+            - name: IRON_PROXY_CA_FILE
+              value: /etc/ssl/iron-proxy/ca.crt
+            - name: IRON_GDOCS_BROKER_TOKEN
+              value: {{ .Values.gdocsIndexer.brokerToken | quote }}
+            {{- end }}
+          envFrom:
+            # IRON_GDOCS_MCP_BEARER_TOKEN for the read-only MCP server.
+            - secretRef:
+                name: gdocs-indexer-secrets
+          ports:
+            - name: mcp
+              containerPort: {{ .Values.gdocsIndexer.ports.mcp }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            {{- if $ip.enabled }}
+            - name: iron-proxy-ca
+              mountPath: /etc/ssl/iron-proxy/ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- end }}
+          resources:
+            {{- toYaml .Values.gdocsIndexer.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gdocs-indexer-data
+        {{- if $ip.enabled }}
+        - name: iron-proxy-ca
+          secret:
+            secretName: iron-proxy-ca
+            # CA cert only — never mount ca.key into the indexer container.
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
