@@ -33,19 +33,18 @@ func TestUpsertGrantee(t *testing.T) {
 	s := openTestStore(t)
 
 	require.NoError(t, s.UpsertGrantee(ctx, Grantee{
-		GranteeID: "acme", OwnerEmail: "Owner@Acme.org", DisplayName: "Acme",
+		GranteeID: "acme", DisplayName: "Acme",
 	}))
 
 	g, err := s.GetGrantee(ctx, "acme")
 	require.NoError(t, err)
 	require.Equal(t, "acme", g.GranteeID)
-	require.Equal(t, "owner@acme.org", g.OwnerEmail)
 	require.Equal(t, "Acme", g.DisplayName)
 	require.Equal(t, StatusActive, g.Status)
 
 	// Update display_name; same id.
 	require.NoError(t, s.UpsertGrantee(ctx, Grantee{
-		GranteeID: "acme", OwnerEmail: "owner@acme.org", DisplayName: "Acme Foundation",
+		GranteeID: "acme", DisplayName: "Acme Foundation",
 	}))
 	g, err = s.GetGrantee(ctx, "acme")
 	require.NoError(t, err)
@@ -69,7 +68,7 @@ func TestUpsertGrantee(t *testing.T) {
 func TestUpsertSourceDuplicateNoError(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t)
-	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "acme"}))
 
 	id1, err := s.UpsertSource(ctx, Source{GranteeID: "acme", SourceType: SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
@@ -88,7 +87,7 @@ func TestUpsertSourceDuplicateNoError(t *testing.T) {
 func TestDocUpsertAndUnseenStale(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t)
-	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "acme"}))
 	_, err := s.UpsertSource(ctx, Source{GranteeID: "acme", SourceType: SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 
@@ -138,8 +137,8 @@ func TestDocUpsertAndUnseenStale(t *testing.T) {
 func TestGetDocForGranteeCrossGranteeRefused(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t)
-	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "a", OwnerEmail: "o@a.org"}))
-	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "b", OwnerEmail: "o@b.org"}))
+	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "a"}))
+	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "b"}))
 	cycle, err := s.NextCycleID(ctx)
 	require.NoError(t, err)
 	require.NoError(t, s.UpsertDoc(ctx, Doc{
@@ -196,7 +195,7 @@ func TestNextCycleIDMonotonic(t *testing.T) {
 func TestListDocsForGranteePagination(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t)
-	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, s.UpsertGrantee(ctx, Grantee{GranteeID: "acme"}))
 	cycle, err := s.NextCycleID(ctx)
 	require.NoError(t, err)
 	for i := 0; i < 5; i++ {

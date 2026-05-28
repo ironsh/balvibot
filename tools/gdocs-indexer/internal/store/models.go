@@ -19,7 +19,6 @@ const (
 
 type Grantee struct {
 	GranteeID   string    `json:"grantee_id"`
-	OwnerEmail  string    `json:"owner_email"`
 	DisplayName string    `json:"display_name,omitempty"`
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -27,7 +26,6 @@ type Grantee struct {
 
 type GranteeSummary struct {
 	GranteeID     string `json:"grantee_id"`
-	OwnerEmail    string `json:"owner_email"`
 	DisplayName   string `json:"display_name,omitempty"`
 	DocumentCount int    `json:"document_count"`
 }

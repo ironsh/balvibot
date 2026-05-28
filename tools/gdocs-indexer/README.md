@@ -11,14 +11,23 @@ credentials.
 
 The Google service account (e.g.
 `balvi-indexer@balvi-project.iam.gserviceaccount.com`) is not a secret —
-anyone can share a doc with it. The indexer therefore distinguishes:
+anyone can share a doc with it. The trust boundary is therefore the
+**Drive folder ACL**, not the per-doc author: an operator allowlists a
+folder (or a specific doc id) for a grantee, and whoever has Edit on
+that folder controls what gets ingested under that grantee. The indexer
+distinguishes:
 
-- **Registered docs**: owned by a grantee's allowlisted `owner_email` AND
-  reached via an allowlisted source (folder or direct doc id). These land
-  in the main `docs` corpus that agents see.
-- **Unregistered docs**: anything else shared with the SA. These land in
-  `unregistered_docs` for separate human triage. The MCP server never
-  exposes them.
+- **Registered docs**: any Google Doc reached via an allowlisted source
+  (a folder or a direct doc id attached to a grantee). These land in the
+  main `docs` corpus that agents see. The Drive owner is recorded on each
+  row as audit metadata, but is not used for any access control.
+- **Unregistered docs**: anything else shared with the SA but not reached
+  via an allowlisted source. These land in `unregistered_docs` for
+  separate human triage. The MCP server never exposes them.
+
+The blast radius of a compromised account with Edit on the folder is "all
+agents querying that grantee will see what they inject." Pick folder
+Editors accordingly.
 
 ## Build
 
@@ -48,28 +57,37 @@ All env vars:
 ## CLI
 
 ```
-gdocs-indexer run                            # daemon: poll loop + MCP
-gdocs-indexer sync-once                      # one cycle, exit
-gdocs-indexer serve-mcp                      # MCP only, no poll loop
-gdocs-indexer register-grantee \
-    --id <slug> --owner-email <email> [--display-name <name>] \
-    [--folder <drive-folder-id>]... [--doc <drive-doc-id>]...
-gdocs-indexer add-source --grantee <id> (--folder <id> | --doc <id>)
+gdocs-indexer run                                                       # daemon: poll loop + MCP
+gdocs-indexer sync-once                                                 # one cycle, exit
+gdocs-indexer serve-mcp                                                 # MCP only, no poll loop
+gdocs-indexer authorize folder <folder-id> --grantee <slug> [--grantee-name <name>]
+gdocs-indexer authorize doc    <doc-id>    --grantee <slug> [--grantee-name <name>]
+gdocs-indexer revoke    folder <folder-id> --grantee <slug>
+gdocs-indexer revoke    doc    <doc-id>    --grantee <slug>
+gdocs-indexer pause-grantee  <slug>
+gdocs-indexer resume-grantee <slug>
 gdocs-indexer list-grantees
 ```
 
 All subcommands read `IRON_GDOCS_DB_PATH` from the environment.
 
+`authorize` is the primary onboarding verb: it attaches a Drive folder or
+doc to a grantee, creating the grantee on first use. `--grantee-name` is
+only consulted at create time; later runs ignore it (use the grantee slug
+as the stable identifier, the name is just a label).
+
 To onboard a new grantee against a running deployment:
 
 ```sh
 kubectl -n philanthropy-os exec deploy/gdocs-indexer -- \
-  gdocs-indexer register-grantee \
-    --id acme-foundation --owner-email contact@acme.org \
-    --folder 1a2b3c-folder-id
+  gdocs-indexer authorize folder 1a2b3c-folder-id \
+    --grantee acme-foundation --grantee-name "Acme Foundation"
 ```
 
-The next poll cycle will pick up the new sources without any pod restart.
+The next poll cycle picks up the new source without any pod restart. To
+stop ingesting a source, use `revoke`. To temporarily skip a grantee
+without unwiring its sources, `pause-grantee <slug>` (and `resume-grantee
+<slug>` to bring it back).
 
 ## Sync algorithm
 
@@ -82,11 +100,10 @@ Each `IRON_GDOCS_POLL_INTERVAL`:
    - doc: `files.get?fileId=<id>`.
 3. For each discovered file:
    - Verify `mimeType == application/vnd.google-apps.document`. Skip otherwise.
-   - Verify `owners[0].emailAddress == grantee.owner_email`. Skip + log on
-     mismatch (policy violation).
    - If `modifiedTime` is unchanged from the existing row: bump
      `last_seen_cycle` and continue (no re-export).
-   - Else: `files.export?mimeType=text/markdown` and upsert the row.
+   - Else: `files.export?mimeType=text/markdown` and upsert the row. The
+     primary owner's email is recorded on the row as audit metadata.
 4. Page `files.list?q=sharedWithMe=true and trashed=false`. Anything not
    already a registered source lands in `unregistered_docs` (or has its
    `last_seen` bumped). Existing status is preserved (humans own it).
@@ -133,7 +150,7 @@ export IRON_GDOCS_DB_PATH=./gdocs.db
 export IRON_PROXY_URL=http://localhost:8888       # any non-empty value
 export IRON_GDOCS_MCP_BEARER_TOKEN=test-token
 export IRON_GDOCS_DRIVE_BASE_URL=http://localhost:5500   # your fake server
-go run ./cmd/gdocs-indexer register-grantee --id a --owner-email o@a.org --folder folder-1
+go run ./cmd/gdocs-indexer authorize folder folder-1 --grantee a
 go run ./cmd/gdocs-indexer sync-once
 ```
 
