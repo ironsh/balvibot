@@ -64,6 +64,32 @@ spec:
     - name: dashboard
       port: {{ .Values.hermesAgent.ports.dashboard }}
       targetPort: dashboard
+{{- with .Values.hermesAgent.dashboard.nodePort }}
+{{- if .enabled }}
+---
+# NodePort for the dashboard. The pod runs under Kata Containers, so the
+# dashboard listens inside the VM rather than in the host-side netns —
+# `kubectl port-forward` enters the host netns and finds nothing on
+# 127.0.0.1, refusing the connection. Routing via a Service (pod IP) works
+# fine, so a NodePort gives external browsers a path that bypasses
+# port-forward entirely.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-agent-dashboard
+  labels:
+    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" $.Values.partOf) | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 4 }}
+  ports:
+    - name: dashboard
+      port: {{ $.Values.hermesAgent.ports.dashboard }}
+      targetPort: dashboard
+      nodePort: {{ .port }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment

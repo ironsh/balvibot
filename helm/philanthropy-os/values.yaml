@@ -166,6 +166,14 @@ hermesAgent:
   ports:
     gateway: 8642
     dashboard: 9119
+  # Optional NodePort for the dashboard. `kubectl port-forward` to the
+  # dashboard port fails under Kata (the listener is inside the VM, but
+  # port-forward dials loopback in the host netns), so a NodePort is the
+  # straightforward way to reach the UI from a browser on the LAN.
+  dashboard:
+    nodePort:
+      enabled: true
+      port: 30119
   env:
     API_SERVER_ENABLED: "true"
     API_SERVER_HOST: "0.0.0.0"
