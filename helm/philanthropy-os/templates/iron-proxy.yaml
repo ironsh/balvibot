@@ -80,20 +80,27 @@ data:
                 require: true
               rules:
                 - host: "api.openai.com"
-            # Google Drive / Docs egress for gdocs-indexer. The indexer
-            # sends the literal placeholder Bearer; iron-proxy's built-in
-            # token broker mints + caches a fresh service-account OAuth
-            # access token and substitutes it here at the wire. The
-            # indexer never sees the SA key or the real token.
-            - source:
-                type: broker
-                handle: {{ $ip.gdocsBrokerHandle | quote }}
-              replace:
-                proxy_value: {{ printf "Bearer %s" $ip.gdocsBrokerToken | quote }}
-                match_headers: ["authorization"]
-                require: true
-              rules:
-                - host: "*.googleapis.com"
+
+      {{- if $ip.gcpAuth.enabled }}
+      # GCP service-account authentication for gdocs-indexer's Drive egress.
+      # The indexer sends `Authorization: Bearer iron-proxy-stub-token` on
+      # every Google API call; this transform mints + caches a real
+      # service-account access token from the mounted keyfile and swaps the
+      # stub at the wire. The indexer never sees the SA key or the real
+      # token — only iron-proxy holds the credential.
+      # See https://docs.iron.sh/credential-proxying/gcp-auth.
+      - name: gcp_auth
+        config:
+          keyfile_path: /etc/iron-proxy/gcp-sa/key.json
+          scopes:
+          {{- range $ip.gcpAuth.scopes }}
+            - {{ . | quote }}
+          {{- end }}
+          rules:
+          {{- range $ip.gcpAuth.hosts }}
+            - host: {{ . | quote }}
+          {{- end }}
+      {{- end }}
 
     metrics:
       listen: "0.0.0.0:{{ $ip.ports.metrics }}"
@@ -198,6 +205,11 @@ spec:
             - name: ca
               mountPath: /etc/iron-proxy/ca
               readOnly: true
+            {{- if $ip.gcpAuth.enabled }}
+            - name: gcp-sa
+              mountPath: /etc/iron-proxy/gcp-sa
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml $ip.resources | nindent 12 }}
       volumes:
@@ -207,4 +219,14 @@ spec:
         - name: ca
           secret:
             secretName: iron-proxy-ca
+        {{- if $ip.gcpAuth.enabled }}
+        - name: gcp-sa
+          secret:
+            # key.json holds the service-account JSON keyfile. Only the
+            # iron-proxy pod reads this — gdocs-indexer never sees it.
+            secretName: iron-proxy-gcp-sa
+            items:
+              - key: key.json
+                path: key.json
+        {{- end }}
 {{- end -}}

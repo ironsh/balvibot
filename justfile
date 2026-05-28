@@ -144,12 +144,17 @@ ship-hermes-skills:
 #                  (real LLM keys — hermes itself never sees them)
 #   mail-indexer:  PHILOS_IMAP_USER, PHILOS_IMAP_PASS, PHILOS_MAIL_INDEXER_MCP_TOKEN
 #   gdocs-indexer: PHILOS_GDOCS_INDEXER_MCP_TOKEN
+#   iron-proxy gcp_auth: PHILOS_GCP_SA_KEY_FILE (path to the SA JSON keyfile;
+#                        only iron-proxy sees it, gdocs-indexer never does)
 bootstrap-secrets:
     @set -eu; \
         missing=(); \
-        for v in PHILOS_API_SERVER_KEY PHILOS_IMAP_USER PHILOS_IMAP_PASS PHILOS_MAIL_INDEXER_MCP_TOKEN PHILOS_GDOCS_INDEXER_MCP_TOKEN; do \
+        for v in PHILOS_API_SERVER_KEY PHILOS_IMAP_USER PHILOS_IMAP_PASS PHILOS_MAIL_INDEXER_MCP_TOKEN PHILOS_GDOCS_INDEXER_MCP_TOKEN PHILOS_GCP_SA_KEY_FILE; do \
             if [ -z "${!v:-}" ]; then missing+=("$v"); fi; \
         done; \
+        if [ -n "${PHILOS_GCP_SA_KEY_FILE:-}" ] && [ ! -f "$PHILOS_GCP_SA_KEY_FILE" ]; then \
+            echo "PHILOS_GCP_SA_KEY_FILE points to non-existent file: $PHILOS_GCP_SA_KEY_FILE" >&2; exit 1; \
+        fi; \
         if [ -z "${PHILOS_ANTHROPIC_API_KEY:-}" ] && [ -z "${PHILOS_OPENAI_API_KEY:-}" ]; then \
             missing+=("PHILOS_ANTHROPIC_API_KEY or PHILOS_OPENAI_API_KEY"); \
         fi; \
@@ -181,6 +186,10 @@ bootstrap-secrets:
         kubectl create secret generic gdocs-indexer-secrets \
             --namespace={{philos_namespace}} \
             --from-literal=IRON_GDOCS_MCP_BEARER_TOKEN="$PHILOS_GDOCS_INDEXER_MCP_TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -; \
+        kubectl create secret generic iron-proxy-gcp-sa \
+            --namespace={{philos_namespace}} \
+            --from-file=key.json="$PHILOS_GCP_SA_KEY_FILE" \
             --dry-run=client -o yaml | kubectl apply -f -
 
 # Generate the iron-proxy CA keypair on first run and store it in the

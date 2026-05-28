@@ -2,8 +2,10 @@
 
 A small Go daemon that mirrors a curated set of Google Docs into SQLite and
 exposes them to agents over MCP. Egress to Google goes through `iron-proxy`,
-which substitutes a real service-account access token for a placeholder
-Bearer at the wire — so the indexer pod holds no Google credentials.
+which uses its [gcp_auth transform](https://docs.iron.sh/credential-proxying/gcp-auth)
+to substitute a real service-account access token for the literal stub
+`iron-proxy-stub-token` at the wire — so the indexer pod holds no Google
+credentials.
 
 ## Trust model
 
@@ -38,7 +40,7 @@ All env vars:
 | `IRON_GDOCS_MCP_BEARER_TOKEN` | yes¹ | | Shared secret. Required when MCP enabled |
 | `IRON_GDOCS_MCP_ENABLED` | no | `true` | |
 | `IRON_PROXY_URL` | yes | | Informational; egress goes via dnsConfig + MITM |
-| `IRON_GDOCS_BROKER_TOKEN` | no | `IRON_BROKER:gdocs-sa:default` | Placeholder Bearer iron-proxy substitutes |
+| `IRON_GDOCS_BROKER_TOKEN` | no | `iron-proxy-stub-token` | Placeholder Bearer the iron-proxy `gcp_auth` transform substitutes |
 | `IRON_PROXY_CA_FILE` | no | `/etc/ssl/iron-proxy/ca.crt` | Trust anchor for TLS to googleapis.com |
 | `IRON_GDOCS_DRIVE_BASE_URL` | no | `https://www.googleapis.com/drive/v3` | Hidden test override |
 | `IRON_GDOCS_LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error` |

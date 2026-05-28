@@ -56,11 +56,10 @@ gdocsIndexer:
     IRON_GDOCS_POLL_INTERVAL: "5m"
     IRON_GDOCS_LOG_LEVEL: "info"
     IRON_GDOCS_MCP_ENABLED: "true"
-  # Placeholder Bearer token the indexer sends on every Google API call.
-  # iron-proxy swaps this for a fresh service-account access token at the
-  # egress boundary via its built-in token broker. Safe to commit: it grants
-  # nothing on its own.
-  brokerToken: "IRON_BROKER:gdocs-sa:default"
+  # Override IRON_GDOCS_BROKER_TOKEN here only if iron-proxy's gcp_auth
+  # transform is configured with a non-default stub. Empty (default) means
+  # the indexer falls back to the upstream default `iron-proxy-stub-token`.
+  brokerToken: ""
   # IRON_GDOCS_MCP_BEARER_TOKEN is injected via the gdocs-indexer-secrets
   # Secret built by `just bootstrap-secrets` (PHILOS_GDOCS_INDEXER_MCP_TOKEN).
   resources:
@@ -116,13 +115,20 @@ ironProxy:
   proxyTokens:
     anthropic: "ironproxy-anthropic-placeholder"
     openai: "ironproxy-openai-placeholder"
-  # Google Drive egress for gdocs-indexer. `gdocsBrokerHandle` selects which
-  # SA credential iron-proxy mints tokens against (configured out-of-band on
-  # iron-proxy); `gdocsBrokerToken` is the literal placeholder gdocs-indexer
-  # sends in its Authorization header. Both must match the values in
-  # gdocsIndexer.brokerToken and the iron-proxy broker config.
-  gdocsBrokerHandle: "gdocs-sa:default"
-  gdocsBrokerToken: "IRON_BROKER:gdocs-sa:default"
+  # GCP service-account auth (gcp_auth transform) for gdocs-indexer's
+  # Google Drive egress. iron-proxy mounts the SA keyfile from the
+  # `iron-proxy-gcp-sa` Secret (provisioned by `just bootstrap-secrets`
+  # from PHILOS_GCP_SA_KEY_FILE), mints OAuth access tokens against the
+  # scopes below, and swaps `iron-proxy-stub-token` on outbound requests
+  # to the matched hosts. The indexer holds no Google credentials.
+  # See https://docs.iron.sh/credential-proxying/gcp-auth.
+  gcpAuth:
+    enabled: true
+    scopes:
+      - "https://www.googleapis.com/auth/drive.readonly"
+      - "https://www.googleapis.com/auth/documents.readonly"
+    hosts:
+      - "*.googleapis.com"
   resources:
     requests:
       cpu: "50m"

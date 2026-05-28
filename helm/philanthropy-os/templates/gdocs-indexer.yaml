@@ -86,8 +86,14 @@ spec:
               value: {{ printf "https://%s" $ip.clusterIP | quote }}
             - name: IRON_PROXY_CA_FILE
               value: /etc/ssl/iron-proxy/ca.crt
+            # The indexer sends `Authorization: Bearer iron-proxy-stub-token`
+            # on every Drive call; iron-proxy's gcp_auth transform swaps it
+            # for a real SA token at the wire. Default matches; override
+            # only if iron-proxy is configured with a non-default stub.
+            {{- with .Values.gdocsIndexer.brokerToken }}
             - name: IRON_GDOCS_BROKER_TOKEN
-              value: {{ .Values.gdocsIndexer.brokerToken | quote }}
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
           envFrom:
             # IRON_GDOCS_MCP_BEARER_TOKEN for the read-only MCP server.

@@ -86,7 +86,7 @@ func newTestClient(t *testing.T, f *fakeDrive) *Client {
 	t.Cleanup(srv.Close)
 	c, err := New(Config{
 		BaseURL:     srv.URL,
-		BrokerToken: "IRON_BROKER:gdocs-sa:default",
+		BrokerToken: "iron-proxy-stub-token",
 		HTTPClient:  srv.Client(),
 	})
 	require.NoError(t, err)
@@ -102,8 +102,8 @@ func TestPlaceholderHeaderForwardedVerbatim(t *testing.T) {
 	_, err := c.ListFolder(context.Background(), "folder-1", "")
 	require.NoError(t, err)
 	require.Len(t, f.authHeaders, 1)
-	require.Equal(t, "Bearer IRON_BROKER:gdocs-sa:default", f.authHeaders[0],
-		"the indexer must forward the placeholder verbatim; iron-proxy does the swap")
+	require.Equal(t, "Bearer iron-proxy-stub-token", f.authHeaders[0],
+		"the indexer must forward the stub verbatim; iron-proxy's gcp_auth transform does the swap")
 }
 
 func TestListFolderPagination(t *testing.T) {

@@ -11,7 +11,11 @@ import (
 const (
 	DefaultPollInterval = 5 * time.Minute
 	DefaultMCPListen    = "127.0.0.1:8800"
-	DefaultBrokerToken  = "IRON_BROKER:gdocs-sa:default"
+	// DefaultBrokerToken is the literal placeholder iron-proxy's gcp_auth
+	// transform expects in the Authorization header. iron-proxy swaps it
+	// for a real service-account access token at the wire. See
+	// https://docs.iron.sh/credential-proxying/gcp-auth.
+	DefaultBrokerToken = "iron-proxy-stub-token"
 	DefaultCAFile       = "/etc/ssl/iron-proxy/ca.crt"
 )
 
