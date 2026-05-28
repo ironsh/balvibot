@@ -23,8 +23,8 @@ func newTestStore(t *testing.T) *store.Store {
 	t.Cleanup(func() { _ = st.Close() })
 
 	ctx := context.Background()
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "owner@acme.org", DisplayName: "Acme"}))
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "beta", OwnerEmail: "lead@beta.org", DisplayName: "Beta"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", DisplayName: "Acme"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "beta", DisplayName: "Beta"}))
 
 	cycle, err := st.NextCycleID(ctx)
 	require.NoError(t, err)

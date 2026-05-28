@@ -34,7 +34,7 @@ type Stats struct {
 	CycleID          int64
 	DocsSynced       int // freshly written or rewritten
 	DocsUnchanged    int // unchanged-modifiedTime touches
-	DocsSkipped      int // mime / owner mismatch
+	DocsSkipped      int // mime mismatch
 	DocsFailed       int // export errors that landed status=error
 	DocsMarkedStale  int // 403/404 + unseen-this-cycle
 	UnregisteredSeen int
@@ -98,7 +98,7 @@ func syncGrantee(ctx context.Context, st *store.Store, d DriveAPI, g *store.Gran
 	if err != nil {
 		return fmt.Errorf("list sources: %w", err)
 	}
-	gLog := logger.With("grantee_id", g.GranteeID, "owner_email", g.OwnerEmail)
+	gLog := logger.With("grantee_id", g.GranteeID)
 	for i := range srcs {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -155,9 +155,10 @@ func walkFolder(ctx context.Context, st *store.Store, d DriveAPI, g *store.Grant
 	}
 }
 
-// processDoc handles a single Drive file: owner-policy check, change
-// detection, export, and upsert. It never returns an error; per-doc failures
-// are logged + recorded on the docs row.
+// processDoc handles a single Drive file: change detection, export, and
+// upsert. It never returns an error; per-doc failures are logged + recorded
+// on the docs row. The trust boundary is the source itself (an allowlisted
+// folder or doc id); per-doc owner is recorded as audit metadata only.
 func processDoc(ctx context.Context, st *store.Store, d DriveAPI, g *store.Grantee, src *store.Source, f *drive.File, cycleID int64, stats *Stats, logger *slog.Logger) {
 	docLog := logger.With("doc_id", f.ID, "title", f.Name)
 
@@ -168,12 +169,6 @@ func processDoc(ctx context.Context, st *store.Store, d DriveAPI, g *store.Grant
 	}
 
 	owner := strings.ToLower(strings.TrimSpace(f.PrimaryOwnerEmail()))
-	wantOwner := strings.ToLower(strings.TrimSpace(g.OwnerEmail))
-	if owner != wantOwner {
-		docLog.Warn("owner policy violation: skipping", "got_owner", owner, "want_owner", wantOwner)
-		stats.DocsSkipped++
-		return
-	}
 
 	modifiedAt, err := parseDriveTime(f.ModifiedTime)
 	if err != nil {

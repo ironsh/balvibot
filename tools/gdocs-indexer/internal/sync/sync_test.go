@@ -85,39 +85,42 @@ func makeFile(id, name, mime, owner, modified string) drive.File {
 	}
 }
 
-func TestSyncRegistersDocAndPicksUpOwnerMismatch(t *testing.T) {
+func TestSyncIngestsEveryDocInFolderRegardlessOfOwner(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "owner@acme.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 
+	// Folder-as-trust-boundary: docs added by a grantee staffer (different
+	// Drive owner than anyone we registered) ingest just like any other
+	// folder content. Non-doc mimes are dropped at the folder walk and never
+	// reach processDoc.
 	d := newFakeDrive()
 	d.folders["folder-1"] = []drive.File{
-		makeFile("doc-good", "Mine", drive.MimeDoc, "owner@acme.org", "2026-01-02T03:04:05Z"),
-		makeFile("doc-bad", "Theirs", drive.MimeDoc, "stranger@example.org", "2026-01-02T03:04:05Z"),
-		makeFile("doc-bin", "Spreadsheet", "application/vnd.google-apps.spreadsheet", "owner@acme.org", "2026-01-02T03:04:05Z"),
+		makeFile("doc-balvi", "From Balvi", drive.MimeDoc, "balvi-admin@balvi.org", "2026-01-02T03:04:05Z"),
+		makeFile("doc-staff", "From grantee staffer", drive.MimeDoc, "alice@grantee.org", "2026-01-02T03:04:05Z"),
+		makeFile("doc-bin", "Spreadsheet", "application/vnd.google-apps.spreadsheet", "balvi-admin@balvi.org", "2026-01-02T03:04:05Z"),
 	}
-	d.exports["doc-good"] = "# Hello"
+	d.exports["doc-balvi"] = "# balvi"
+	d.exports["doc-staff"] = "# staff"
 
 	stats, err := Run(ctx, st, d, newDiscardLogger())
 	require.NoError(t, err)
-	require.Equal(t, 1, stats.DocsSynced)
-	require.Equal(t, 1, stats.DocsSkipped, "owner mismatch counted as skip; non-doc mime filtered earlier at folder walk")
+	require.Equal(t, 2, stats.DocsSynced)
+	require.Equal(t, 0, stats.DocsSkipped)
 
-	good, err := st.GetDocByID(ctx, "doc-good")
+	staff, err := st.GetDocByID(ctx, "doc-staff")
 	require.NoError(t, err)
-	require.Equal(t, "# Hello", good.ContentMarkdown)
-	require.Equal(t, "acme", good.GranteeID)
-
-	_, err = st.GetDocByID(ctx, "doc-bad")
-	require.ErrorIs(t, err, store.ErrNotFound)
+	require.Equal(t, "# staff", staff.ContentMarkdown)
+	require.Equal(t, "acme", staff.GranteeID)
+	require.Equal(t, "alice@grantee.org", staff.OwnerEmail, "audit metadata preserved")
 }
 
 func TestSyncUnchangedDocIsNoop(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "owner@acme.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 
@@ -143,7 +146,7 @@ func TestSyncUnchangedDocIsNoop(t *testing.T) {
 func TestSyncRevisesContentWhenModifiedTimeChanges(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 
@@ -177,7 +180,7 @@ func TestSyncRevisesContentWhenModifiedTimeChanges(t *testing.T) {
 func TestSyncUnregisteredScan(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 
@@ -219,7 +222,7 @@ func TestSyncUnregisteredScan(t *testing.T) {
 func TestSyncMarksStaleOnExport404(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 
@@ -252,7 +255,7 @@ func TestSyncMarksStaleOnExport404(t *testing.T) {
 func TestSyncMarksStaleOnDisappearance(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 
@@ -278,7 +281,7 @@ func TestSyncMarksStaleOnDisappearance(t *testing.T) {
 func TestSyncSubfolderRecursion(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 
@@ -304,7 +307,7 @@ func TestSyncSubfolderRecursion(t *testing.T) {
 func TestPausedGranteeNotSynced(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 	require.NoError(t, st.SetGranteeStatus(ctx, "acme", store.StatusPaused))
@@ -324,7 +327,7 @@ func TestPausedGranteeNotSynced(t *testing.T) {
 func TestRunPropagatesContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 	cancel()
@@ -338,7 +341,7 @@ func TestRunPropagatesContextCancel(t *testing.T) {
 func TestSyncRecordsTransientExportError(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme", OwnerEmail: "o@a.org"}))
+	require.NoError(t, st.UpsertGrantee(ctx, store.Grantee{GranteeID: "acme"}))
 	_, err := st.UpsertSource(ctx, store.Source{GranteeID: "acme", SourceType: store.SourceTypeFolder, DriveID: "folder-1"})
 	require.NoError(t, err)
 	d := newFakeDrive()

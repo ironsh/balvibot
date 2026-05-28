@@ -44,14 +44,12 @@ func (s *Store) DB() *sql.DB { return s.db }
 
 // ---------- grantees ----------
 
-// UpsertGrantee inserts or updates a grantee row by id. Returns ErrNotFound
-// only on read-after-write inconsistency; normally never errors with that.
-func (s *Store) UpsertGrantee(ctx context.Context, g Grantee) error {
+// EnsureGrantee inserts a grantee row if missing, but never overwrites an
+// existing one. Use this from the `authorize` flow, where display_name is
+// only meaningful at first creation.
+func (s *Store) EnsureGrantee(ctx context.Context, g Grantee) error {
 	if g.GranteeID == "" {
 		return errors.New("grantee_id required")
-	}
-	if g.OwnerEmail == "" {
-		return errors.New("owner_email required")
 	}
 	if g.Status == "" {
 		g.Status = StatusActive
@@ -61,13 +59,33 @@ func (s *Store) UpsertGrantee(ctx context.Context, g Grantee) error {
 		createdAt = time.Now().Unix()
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO grantees(grantee_id, owner_email, display_name, status, created_at)
-		VALUES(?, ?, ?, ?, ?)
+		INSERT INTO grantees(grantee_id, display_name, status, created_at)
+		VALUES(?, ?, ?, ?)
+		ON CONFLICT(grantee_id) DO NOTHING
+	`, g.GranteeID, nullStr(g.DisplayName), g.Status, createdAt)
+	return err
+}
+
+// UpsertGrantee inserts or updates a grantee row by id. Returns ErrNotFound
+// only on read-after-write inconsistency; normally never errors with that.
+func (s *Store) UpsertGrantee(ctx context.Context, g Grantee) error {
+	if g.GranteeID == "" {
+		return errors.New("grantee_id required")
+	}
+	if g.Status == "" {
+		g.Status = StatusActive
+	}
+	createdAt := g.CreatedAt.Unix()
+	if g.CreatedAt.IsZero() {
+		createdAt = time.Now().Unix()
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO grantees(grantee_id, display_name, status, created_at)
+		VALUES(?, ?, ?, ?)
 		ON CONFLICT(grantee_id) DO UPDATE SET
-		  owner_email = excluded.owner_email,
 		  display_name = excluded.display_name,
 		  status = excluded.status
-	`, g.GranteeID, strings.ToLower(strings.TrimSpace(g.OwnerEmail)), nullStr(g.DisplayName), g.Status, createdAt)
+	`, g.GranteeID, nullStr(g.DisplayName), g.Status, createdAt)
 	return err
 }
 
@@ -91,12 +109,12 @@ func (s *Store) SetGranteeStatus(ctx context.Context, granteeID, status string) 
 
 func (s *Store) GetGrantee(ctx context.Context, granteeID string) (*Grantee, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT grantee_id, owner_email, COALESCE(display_name,''), status, created_at
+		SELECT grantee_id, COALESCE(display_name,''), status, created_at
 		FROM grantees WHERE grantee_id = ?
 	`, granteeID)
 	var g Grantee
 	var createdAt int64
-	if err := row.Scan(&g.GranteeID, &g.OwnerEmail, &g.DisplayName, &g.Status, &createdAt); err != nil {
+	if err := row.Scan(&g.GranteeID, &g.DisplayName, &g.Status, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -115,7 +133,7 @@ func (s *Store) ListGrantees(ctx context.Context) ([]Grantee, error) {
 }
 
 func (s *Store) listGrantees(ctx context.Context, whereOrderClause string) ([]Grantee, error) {
-	q := `SELECT grantee_id, owner_email, COALESCE(display_name,''), status, created_at FROM grantees ` + whereOrderClause
+	q := `SELECT grantee_id, COALESCE(display_name,''), status, created_at FROM grantees ` + whereOrderClause
 	rows, err := s.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
@@ -125,7 +143,7 @@ func (s *Store) listGrantees(ctx context.Context, whereOrderClause string) ([]Gr
 	for rows.Next() {
 		var g Grantee
 		var createdAt int64
-		if err := rows.Scan(&g.GranteeID, &g.OwnerEmail, &g.DisplayName, &g.Status, &createdAt); err != nil {
+		if err := rows.Scan(&g.GranteeID, &g.DisplayName, &g.Status, &createdAt); err != nil {
 			return nil, err
 		}
 		g.CreatedAt = time.Unix(createdAt, 0).UTC()
@@ -138,7 +156,7 @@ func (s *Store) listGrantees(ctx context.Context, whereOrderClause string) ([]Gr
 // MCP list_grantees tool.
 func (s *Store) GranteeSummaries(ctx context.Context) ([]GranteeSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT g.grantee_id, g.owner_email, COALESCE(g.display_name,''),
+		SELECT g.grantee_id, COALESCE(g.display_name,''),
 		  (SELECT COUNT(*) FROM docs d WHERE d.grantee_id = g.grantee_id)
 		FROM grantees g
 		ORDER BY g.grantee_id
@@ -150,7 +168,7 @@ func (s *Store) GranteeSummaries(ctx context.Context) ([]GranteeSummary, error) 
 	var out []GranteeSummary
 	for rows.Next() {
 		var s GranteeSummary
-		if err := rows.Scan(&s.GranteeID, &s.OwnerEmail, &s.DisplayName, &s.DocumentCount); err != nil {
+		if err := rows.Scan(&s.GranteeID, &s.DisplayName, &s.DocumentCount); err != nil {
 			return nil, err
 		}
 		out = append(out, s)

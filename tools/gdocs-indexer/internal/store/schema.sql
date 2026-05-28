@@ -1,11 +1,9 @@
 CREATE TABLE IF NOT EXISTS grantees (
   grantee_id   TEXT PRIMARY KEY,
-  owner_email  TEXT NOT NULL COLLATE NOCASE,
   display_name TEXT,
   status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused')),
   created_at   INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_grantees_owner ON grantees(owner_email);
 
 CREATE TABLE IF NOT EXISTS grantee_sources (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
