@@ -154,9 +154,13 @@ signalCli:
       memory: 1Gi
 
 hermesAgent:
+  # Custom image: upstream nousresearch/hermes-agent v2026.5.29.2 with the
+  # require_mention Signal fix (#36088) baked in. Built + shipped by
+  # `just ship-hermes-agent` (see docker/hermes-agent/). Keep this tag in sync
+  # with hermes_agent_tag in the justfile.
   image:
-    repository: nousresearch/hermes-agent
-    tag: latest
+    repository: philanthropy-os/hermes-agent
+    tag: v2026.5.29.2-mention1
     pullPolicy: IfNotPresent
   # RuntimeClass for the hermes pod. kata-deploy creates one RuntimeClass per
   # shim it installs (e.g. kata-qemu, kata-clh, kata-fc). Set empty to use the
