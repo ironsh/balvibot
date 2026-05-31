@@ -1,15 +1,8 @@
 {{- $config := deepCopy .Values.hermesAgent.config -}}
-{{- if .Values.hermesAgent.mailIndexer.enabled -}}
-{{-   $mcp := dict "mail-indexer" (dict
-        "url" "${MAIL_INDEXER_MCP_URL}"
-        "headers" (dict "Authorization" "Bearer ${MAIL_INDEXER_MCP_TOKEN}")) -}}
-{{-   $existing := default dict $config.mcp_servers -}}
-{{-   $_ := set $config "mcp_servers" (merge $existing $mcp) -}}
-{{- end -}}
-{{- if .Values.hermesAgent.gdocsIndexer.enabled -}}
-{{-   $mcp := dict "gdocs-indexer" (dict
-        "url" "${GDOCS_INDEXER_MCP_URL}"
-        "headers" (dict "Authorization" "Bearer ${GDOCS_INDEXER_MCP_TOKEN}")) -}}
+{{- if .Values.hermesAgent.api.enabled -}}
+{{-   $mcp := dict "philos-api" (dict
+        "url" "${PHILOS_API_MCP_URL}"
+        "headers" (dict "Authorization" "Bearer ${PHILOS_API_MCP_TOKEN}")) -}}
 {{-   $existing := default dict $config.mcp_servers -}}
 {{-   $_ := set $config "mcp_servers" (merge $existing $mcp) -}}
 {{- end -}}
@@ -198,23 +191,14 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
-            {{- if .Values.hermesAgent.mailIndexer.enabled }}
-            - name: MAIL_INDEXER_MCP_URL
-              value: {{ include "philos.mailIndexer.mcpUrl" . | quote }}
-            - name: MAIL_INDEXER_MCP_TOKEN
+            {{- if .Values.hermesAgent.api.enabled }}
+            - name: PHILOS_API_MCP_URL
+              value: {{ include "philos.api.mcpUrl" . | quote }}
+            - name: PHILOS_API_MCP_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: mail-indexer-secrets
+                  name: api-secrets
                   key: MCP_BEARER_TOKEN
-            {{- end }}
-            {{- if .Values.hermesAgent.gdocsIndexer.enabled }}
-            - name: GDOCS_INDEXER_MCP_URL
-              value: {{ include "philos.gdocsIndexer.mcpUrl" . | quote }}
-            - name: GDOCS_INDEXER_MCP_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: gdocs-indexer-secrets
-                  key: IRON_GDOCS_MCP_BEARER_TOKEN
             {{- end }}
             {{- if .Values.hermesAgent.signal.account }}
             - name: SIGNAL_HTTP_URL

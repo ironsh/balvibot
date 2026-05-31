@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: api-migrate
+  labels:
+    {{- include "philos.labels" (dict "name" "api-migrate" "partOf" .Values.partOf) | nindent 4 }}
+  annotations:
+    # Run after the chart's resources (incl. the postgres StatefulSet) are
+    # applied, so the DB exists. OnFailure + backoffLimit lets the pod retry
+    # until postgres accepts connections. Helm waits for the Job to succeed
+    # before considering the release done.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 30
+  template:
+    metadata:
+      labels:
+        {{- include "philos.labels" (dict "name" "api-migrate" "partOf" .Values.partOf) | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          args: ["migrate", "up"]
+          envFrom:
+            # DATABASE_URL.
+            - secretRef:
+                name: api-secrets
+          resources:
+            {{- toYaml .Values.api.migrateResources | nindent 12 }}

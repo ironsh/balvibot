@@ -40,22 +40,14 @@ spec:
           port: {{ $ip.ports.http }}
         - protocol: TCP
           port: {{ $ip.ports.https }}
-    # mail-indexer MCP. Plain HTTP, in-cluster only.
+    # api MCP (grantees + mail + docs tools). Plain HTTP, in-cluster only.
     - to:
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 14 }}
+              {{- include "philos.selectorLabels" (dict "name" "api") | nindent 14 }}
       ports:
         - protocol: TCP
-          port: {{ .Values.mailIndexer.ports.mcp }}
-    # gdocs-indexer MCP. Plain HTTP, in-cluster only.
-    - to:
-        - podSelector:
-            matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "gdocs-indexer") | nindent 14 }}
-      ports:
-        - protocol: TCP
-          port: {{ .Values.gdocsIndexer.ports.mcp }}
+          port: {{ .Values.api.ports.mcp }}
     # signal-cli daemon. Plain HTTP, in-cluster only.
     - to:
         - podSelector:
@@ -126,27 +118,65 @@ spec:
           port: {{ $ip.ports.http }}
         - protocol: TCP
           port: {{ $ip.ports.https }}
+    # Postgres. The sync loop reads grantees/sources and writes docs.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "postgres") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgres.port }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: gdocs-indexer-ingress
+  name: api-ingress
   labels:
-    {{- include "philos.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "philos.labels" (dict "name" "api" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "gdocs-indexer") | nindent 6 }}
+      {{- include "philos.selectorLabels" (dict "name" "api") | nindent 6 }}
   policyTypes:
     - Ingress
   ingress:
-    # Only hermes-agent reads the indexer's MCP. There's no other legit
-    # consumer in v1.
+    # Only hermes-agent reads the MCP endpoint. No other legit consumer in v1.
     - from:
         - podSelector:
             matchLabels:
               {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 14 }}
       ports:
         - protocol: TCP
-          port: {{ .Values.gdocsIndexer.ports.mcp }}
+          port: {{ .Values.api.ports.mcp }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress
+  labels:
+    {{- include "philos.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "philos.selectorLabels" (dict "name" "postgres") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # The api server, both indexers, and the migrate Job are the only clients.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "api") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "gdocs-indexer") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "api-migrate") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgres.port }}
 {{- end -}}

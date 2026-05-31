@@ -10,23 +10,43 @@ protonmailBridge:
     smtp: 25
     imap: 143
 
-mailIndexer:
+# In-cluster Postgres: the single source of truth for grantees, mail, and docs.
+# All three api workloads (api/mail-indexer/gdocs-indexer) plus the migrate Job
+# connect to it. POSTGRES_PASSWORD comes from the postgres-secrets Secret built
+# by `just bootstrap-secrets` (PHILOS_POSTGRES_PASSWORD); DATABASE_URL (built
+# from the same password) lives in api-secrets.
+postgres:
   image:
-    repository: philanthropy-os/mail-indexer
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  port: 5432
+  db: philos
+  # The official image makes POSTGRES_USER a superuser, which the init
+  # migration needs for `CREATE EXTENSION citext`.
+  user: philos
+  storage: 10Gi
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# The consolidated backend image. One binary, run as several Deployments via
+# subcommands (serve / index-mail / sync-gdocs) plus a migrate Job.
+api:
+  image:
+    repository: philanthropy-os/api
     tag: 0.1.0
     pullPolicy: IfNotPresent
-  storage: 20Gi
   ports:
     mcp: 8080
+  # serve (MCP) env. DATABASE_URL + MCP_BEARER_TOKEN come from api-secrets.
   env:
-    IMAP_TLS: "starttls"
-    MAIL_DB_PATH: "/opt/data/mail.db"
-    MAIL_ATTACHMENTS_DIR: "/opt/data/attachments"
-    MAIL_GRANTEES_FILE: "/opt/config/grantees.json"
-    MAIL_FOLDERS: "INBOX,Sent"
-    MAIL_LOG_LEVEL: "info"
-    MCP_ENABLED: "true"
     MCP_BIND_ADDR: ":8080"
+    LOG_LEVEL: "info"
   resources:
     requests:
       cpu: "100m"
@@ -34,34 +54,41 @@ mailIndexer:
     limits:
       cpu: "1"
       memory: 512Mi
-  # Sender -> grantee mapping. Inject via `helm ... --set-file mailIndexer.grantees=...`
-  # so the file (PII) stays out of values.yaml/git.
-  # MCP_BEARER_TOKEN is injected via the mail-indexer-secrets Secret built by
-  # `just bootstrap-secrets` (PHILOS_MAIL_INDEXER_MCP_TOKEN).
-  grantees: ""
+  migrateResources:
+    requests:
+      cpu: "50m"
+      memory: 64Mi
+    limits:
+      cpu: "500m"
+      memory: 256Mi
 
-gdocsIndexer:
-  image:
-    repository: philanthropy-os/gdocs-indexer
-    tag: 0.1.0
-    pullPolicy: IfNotPresent
-  # gdocs.db (SQLite, holds markdown content inline). Markdown is small;
-  # 5Gi covers thousands of typical Google Docs comfortably.
-  storage: 5Gi
-  ports:
-    mcp: 8800
+# index-mail worker. Uses the `api` image; this block only carries the
+# attachments PVC size, the mail env, and resources.
+mailIndexer:
+  # Content-addressable attachments tree (mail metadata/bodies live in Postgres).
+  storage: 20Gi
   env:
-    IRON_GDOCS_DB_PATH: "/opt/data/gdocs.db"
-    IRON_GDOCS_MCP_LISTEN_ADDR: ":8800"
-    IRON_GDOCS_POLL_INTERVAL: "5m"
-    IRON_GDOCS_LOG_LEVEL: "info"
-    IRON_GDOCS_MCP_ENABLED: "true"
-  # Override IRON_GDOCS_BROKER_TOKEN here only if iron-proxy's gcp_auth
-  # transform is configured with a non-default stub. Empty (default) means
-  # the indexer falls back to the upstream default `iron-proxy-stub-token`.
+    IMAP_TLS: "starttls"
+    MAIL_ATTACHMENTS_DIR: "/opt/data/attachments"
+    MAIL_FOLDERS: "INBOX,Sent"
+    LOG_LEVEL: "info"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+# sync-gdocs worker. Uses the `api` image; no PVC (docs live in Postgres).
+gdocsIndexer:
+  env:
+    GDOCS_POLL_INTERVAL: "5m"
+    LOG_LEVEL: "info"
+  # Override GDOCS_BROKER_TOKEN here only if iron-proxy's gcp_auth transform is
+  # configured with a non-default stub. Empty (default) means the indexer falls
+  # back to the upstream default `iron-proxy-stub-token`.
   brokerToken: ""
-  # IRON_GDOCS_MCP_BEARER_TOKEN is injected via the gdocs-indexer-secrets
-  # Secret built by `just bootstrap-secrets` (PHILOS_GDOCS_INDEXER_MCP_TOKEN).
   resources:
     requests:
       cpu: "100m"
@@ -191,13 +218,11 @@ hermesAgent:
     model:
       provider: anthropic
       default: claude-opus-4-7
-  # mail-indexer MCP integration. When enabled, an mcp_servers.mail-indexer
-  # entry is merged into the rendered config.yaml, and MAIL_INDEXER_MCP_URL /
-  # MAIL_INDEXER_MCP_TOKEN are injected so hermes resolves them at runtime.
-  mailIndexer:
-    enabled: true
-  # gdocs-indexer MCP integration. Same pattern as mailIndexer.
-  gdocsIndexer:
+  # api MCP integration. When enabled, an mcp_servers.philos-api entry is
+  # merged into the rendered config.yaml, and PHILOS_API_MCP_URL /
+  # PHILOS_API_MCP_TOKEN are injected so hermes resolves them at runtime. This
+  # single endpoint exposes all grantee + mail + docs tools.
+  api:
     enabled: true
   # Chart-bundled built-in hermes skills. The hermes-skills image is a tiny
   # busybox-based bundle whose contents are copied by an init container into

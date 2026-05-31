@@ -1,16 +1,3 @@
-{{- if not .Values.mailIndexer.grantees -}}
-{{- fail "mailIndexer.grantees is required (pass via --set-file mailIndexer.grantees=path/to/grantees.json)" -}}
-{{- end -}}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mail-indexer-grantees
-  labels:
-    {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
-data:
-  grantees.json: |
-    {{- .Values.mailIndexer.grantees | nindent 4 }}
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -22,23 +9,9 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      # Holds mail.db (SQLite) and the content-addressable attachments tree.
+      # Holds the content-addressable attachments tree. Mail metadata/bodies
+      # now live in Postgres; this PVC is attachments-only.
       storage: {{ .Values.mailIndexer.storage }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: mail-indexer
-  labels:
-    {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
-spec:
-  type: ClusterIP
-  selector:
-    {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 4 }}
-  ports:
-    - name: mcp
-      port: {{ .Values.mailIndexer.ports.mcp }}
-      targetPort: mcp
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -49,8 +22,8 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    # The PVC is ReadWriteOnce, so a new pod cannot mount it while the old one
-    # still holds it. Recreate avoids the deadlock during rollouts.
+    # The attachments PVC is ReadWriteOnce, so a new pod cannot mount it while
+    # the old one still holds it. Recreate avoids the deadlock during rollouts.
     type: Recreate
   selector:
     matchLabels:
@@ -59,14 +32,12 @@ spec:
     metadata:
       labels:
         {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 8 }}
-      annotations:
-        # Roll pods when grantees.json changes so the new ConfigMap is picked up.
-        checksum/grantees: {{ .Values.mailIndexer.grantees | sha256sum }}
     spec:
       containers:
         - name: mail-indexer
-          image: "{{ .Values.mailIndexer.image.repository }}:{{ .Values.mailIndexer.image.tag }}"
-          imagePullPolicy: {{ .Values.mailIndexer.image.pullPolicy }}
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          args: ["index-mail"]
           env:
             - name: IMAP_ADDR
               value: {{ include "philos.protonmailBridge.imapAddr" . | quote }}
@@ -75,37 +46,15 @@ spec:
               value: {{ $v | quote }}
             {{- end }}
           envFrom:
-            # IMAP_USER + IMAP_PASS for the protonmail-bridge account, plus
-            # MCP_BEARER_TOKEN for the read-only MCP server.
+            # DATABASE_URL + IMAP_USER + IMAP_PASS.
             - secretRef:
-                name: mail-indexer-secrets
-          ports:
-            - name: mcp
-              containerPort: {{ .Values.mailIndexer.ports.mcp }}
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: mcp
-            initialDelaySeconds: 2
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: mcp
-            initialDelaySeconds: 10
-            periodSeconds: 30
+                name: api-secrets
           volumeMounts:
             - name: data
               mountPath: /opt/data
-            - name: config
-              mountPath: /opt/config
-              readOnly: true
           resources:
             {{- toYaml .Values.mailIndexer.resources | nindent 12 }}
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: mail-indexer-data
-        - name: config
-          configMap:
-            name: mail-indexer-grantees
