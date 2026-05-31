@@ -8,8 +8,15 @@ Kubernetes manifests for the philanthropy-os services, packaged as a Helm chart.
   ported from [`shenxn/protonmail-bridge-docker`](https://github.com/shenxn/protonmail-bridge-docker))
   exposing local SMTP (25) and IMAP (143) endpoints that proxy a ProtonMail
   account so cluster workloads can send/receive mail.
-- **mail-indexer** — indexes mail from the bridge into SQLite, tagging messages
-  by grantee (see `helm/philanthropy-os/grantees.json`).
+- **postgres** — in-cluster Postgres StatefulSet, the single source of truth
+  for grantees, indexed mail, and mirrored docs. Schema is managed by Goose
+  migrations (run once by the `api-migrate` Job on each install/upgrade).
+- **api** — the consolidated backend (`tools/api`, one image run as several
+  Deployments via subcommands): `serve` exposes the MCP endpoint (grantees +
+  mail + docs tools) the agent talks to; `index-mail` indexes mail from the
+  bridge into Postgres, tagging messages by grantee; `sync-gdocs` mirrors
+  grantee Google Docs from Drive into Postgres. Grantees, their sender emails,
+  and their authorized Drive sources are managed with the `api grantee` CLI.
 - **hermes-agent** — runs [`nousresearch/hermes-agent`](https://hermes-agent.nousresearch.com/docs/user-guide/docker)
   in gateway mode, exposing an OpenAI-compatible API (8642) and dashboard (9119).
 - **signal-cli** — locally built [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli)
@@ -47,16 +54,9 @@ Build the local images first (they're referenced by tag, not pulled):
 
 ```sh
 just build-protonmail-bridge
-just build-mail-indexer
+just build-api
 just build-signal-cli
 just build-hermes-skills
-```
-
-Copy and edit the grantee mapping (gitignored):
-
-```sh
-cp helm/philanthropy-os/grantees.json.example helm/philanthropy-os/grantees.json
-# edit grantees.json
 ```
 
 Install/upgrade the chart:
@@ -66,13 +66,16 @@ just deploy
 ```
 
 This runs `helm upgrade --install philanthropy-os helm/philanthropy-os
---namespace philanthropy-os --create-namespace --set-file
-mailIndexer.grantees=helm/philanthropy-os/grantees.json`.
+--namespace philanthropy-os --create-namespace`. On each install/upgrade the
+`api-migrate` Job runs `api migrate up` against Postgres to apply schema
+migrations before the services serve traffic.
+
+Grantees are not configured via a file. After the chart is up, manage them with
+the `api grantee` CLI (see below).
 
 If your cluster is remote, load the locally built images into it (the justfile
 does this for you over SSH via `just upload-protonmail-bridge` / `just
-upload-mail-indexer`, or use `kind load docker-image …`, `minikube image load
-…`, etc.).
+upload-api`, or use `kind load docker-image …`, `minikube image load …`, etc.).
 
 ## Secrets
 
@@ -87,11 +90,13 @@ just bootstrap-secrets
 just bootstrap-iron-proxy-ca
 ```
 
-`bootstrap-secrets` is idempotent — re-run any time to roll a value. It writes
-three Secrets: `hermes-agent-secrets` (API_SERVER_KEY only), `iron-proxy-secrets`
+`bootstrap-secrets` is idempotent — re-run any time to roll a value. It writes:
+`hermes-agent-secrets` (API_SERVER_KEY only); `iron-proxy-secrets`
 (REAL_ANTHROPIC_API_KEY / REAL_OPENAI_API_KEY — the actual provider keys,
-visible only to the iron-proxy sidecar), and `mail-indexer-secrets`
-(IMAP credentials + MCP bearer token).
+visible only to the iron-proxy sidecar); `postgres-secrets`
+(POSTGRES_PASSWORD); and `api-secrets` (DATABASE_URL built from that password,
+the MCP bearer token, and the IMAP credentials — shared by the `api`,
+`mail-indexer`, `gdocs-indexer`, and `api-migrate` workloads).
 
 `bootstrap-iron-proxy-ca` generates a long-lived CA keypair (10y) into the
 `iron-proxy-ca` Secret on first run and reuses it on subsequent runs, so the
@@ -108,10 +113,28 @@ The hermes-agent pod renders `/opt/data/config.yaml` from
 so no `hermes-agent setup` is needed — the pod boots ready. The gateway API is
 reachable at `hermes-agent.philanthropy-os.svc.cluster.local:8642`.
 
-When `hermesAgent.mailIndexer.enabled` is true (default), an
-`mcp_servers.mail-indexer` entry is merged into the rendered config and the
-mail-indexer URL + bearer token are exposed as `MAIL_INDEXER_MCP_URL` /
-`MAIL_INDEXER_MCP_TOKEN` env vars (resolved by hermes at runtime).
+When `hermesAgent.api.enabled` is true (default), a single
+`mcp_servers.philos-api` entry is merged into the rendered config and the api
+MCP URL + bearer token are exposed as `PHILOS_API_MCP_URL` /
+`PHILOS_API_MCP_TOKEN` env vars (resolved by hermes at runtime). That one
+endpoint serves the grantee, mail, and docs tools.
+
+## Managing grantees
+
+Grantees, their sender-email mappings (mail attribution), and their authorized
+Drive sources (docs sync) all live in Postgres and are managed with the
+`api grantee` CLI. Run it inside the `api` pod, e.g.:
+
+```sh
+POD=$(kubectl -n philanthropy-os get pod -l app.kubernetes.io/name=api -o name)
+kubectl -n philanthropy-os exec -it "$POD" -- api grantee create acme --name "Acme"
+kubectl -n philanthropy-os exec -it "$POD" -- api grantee add-email acme dev@acme.org
+kubectl -n philanthropy-os exec -it "$POD" -- api grantee authorize folder <drive-folder-id> --grantee acme
+kubectl -n philanthropy-os exec -it "$POD" -- api grantee list
+```
+
+`pause`/`resume` toggle whether the gdocs sync loop processes a grantee;
+`revoke folder|doc` and `remove-email` undo the corresponding mappings.
 
 The agent's `SOUL.md` lives at `helm/philanthropy-os/SOUL.md` and ships in the
 `hermes-agent-config` ConfigMap, mounted read-only at `/opt/data/SOUL.md` via

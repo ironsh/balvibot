@@ -15,10 +15,6 @@ app.kubernetes.io/name: {{ .name }}
 {{- printf "http://signal-cli.%s.svc.cluster.local:%v" .Release.Namespace .Values.signalCli.ports.http -}}
 {{- end -}}
 
-{{- define "philos.mailIndexer.mcpUrl" -}}
-{{- printf "http://mail-indexer.%s.svc.cluster.local:%v/mcp" .Release.Namespace .Values.mailIndexer.ports.mcp -}}
-{{- end -}}
-
-{{- define "philos.gdocsIndexer.mcpUrl" -}}
-{{- printf "http://gdocs-indexer.%s.svc.cluster.local:%v/mcp" .Release.Namespace .Values.gdocsIndexer.ports.mcp -}}
+{{- define "philos.api.mcpUrl" -}}
+{{- printf "http://api.%s.svc.cluster.local:%v/mcp" .Release.Namespace .Values.api.ports.mcp -}}
 {{- end -}}
