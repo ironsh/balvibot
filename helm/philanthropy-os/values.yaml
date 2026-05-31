@@ -62,6 +62,26 @@ api:
       cpu: "500m"
       memory: 256Mi
 
+# approve-serve worker. Uses the `api` image; runs the approval service (agent
+# MCP enqueue endpoint + operator approval REST API). DATABASE_URL +
+# APPROVAL_BEARER_TOKEN come from api-secrets.
+approval:
+  image:
+    repository: philanthropy-os/api
+    tag: 0.1.0
+    pullPolicy: IfNotPresent
+  ports:
+    approval: 8090
+  env:
+    LOG_LEVEL: "info"
+  resources:
+    requests:
+      cpu: "50m"
+      memory: 128Mi
+    limits:
+      cpu: "500m"
+      memory: 256Mi
+
 # index-mail worker. Uses the `api` image; this block only carries the
 # attachments PVC size, the mail env, and resources.
 mailIndexer:

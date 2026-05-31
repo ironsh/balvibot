@@ -8,6 +8,23 @@ import (
 
 // All times are RFC 3339 strings on the wire. Empty strings mean "no bound".
 
+// ---------- actions (write-for-approval) ----------
+
+// EnqueueResult is the common output of every mutating tool: the action was
+// queued for approval, not performed. Returned with status "pending".
+type EnqueueResult struct {
+	ApprovalID int64  `json:"approval_id"`
+	Action     string `json:"action"`
+	Status     string `json:"status"`
+}
+
+// AddGranteeInput requests creation of a new grantee (queued for approval).
+type AddGranteeInput struct {
+	Slug        string `json:"slug" jsonschema:"Stable grantee id/slug to create (e.g. acme-foundation)."`
+	DisplayName string `json:"display_name,omitempty" jsonschema:"Optional human-readable name."`
+	RequestedBy string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
+}
+
 // ---------- grantees ----------
 
 type ListGranteesInput struct{}
