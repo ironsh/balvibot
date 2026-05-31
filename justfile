@@ -19,6 +19,13 @@ signal_cli_tag := signal_cli_version
 hermes_skills_image := "philanthropy-os/hermes-skills"
 hermes_skills_tag := "0.2.0"
 
+# Upstream hermes-agent release the custom image is built on. The local tag
+# encodes that base plus the require_mention patch (#36088) so a base bump or a
+# patch change rolls the pinned tag in values.yaml.
+hermes_agent_version := "v2026.5.29.2"
+hermes_agent_image := "philanthropy-os/hermes-agent"
+hermes_agent_tag := hermes_agent_version + "-mention1"
+
 philos_namespace := "philanthropy-os"
 philos_release := "philanthropy-os"
 philos_chart := "helm/philanthropy-os"
@@ -31,7 +38,7 @@ default:
 # One-shot bring-up: bootstrap secrets + iron-proxy CA, build & ship images
 # to the remote k3s node, and install the helm chart. Requires PHILOS_K3S_NODE
 # plus all the PHILOS_* secret env vars (see `bootstrap-secrets`).
-up: bootstrap-secrets bootstrap-iron-proxy-ca ship-protonmail-bridge ship-mail-indexer ship-gdocs-indexer ship-signal-cli ship-hermes-skills deploy
+up: bootstrap-secrets bootstrap-iron-proxy-ca ship-protonmail-bridge ship-mail-indexer ship-gdocs-indexer ship-signal-cli ship-hermes-skills ship-hermes-agent deploy
 
 # Install/upgrade the helm release. grantees.json is injected via --set-file so
 # the PII never lands in values.yaml or git. values.local.yaml is layered on top
@@ -119,6 +126,15 @@ build-hermes-skills tag=hermes_skills_tag:
 upload-hermes-skills tag=hermes_skills_tag:
     @just _upload "{{hermes_skills_image}}:{{tag}}"
 
+# Build the custom hermes-agent image: upstream `version` with the
+# require_mention patch (#36088) applied via git apply in the Dockerfile.
+build-hermes-agent version=hermes_agent_version tag=hermes_agent_tag:
+    @just _build "{{hermes_agent_image}}:{{tag}}" docker/hermes-agent/Dockerfile --build-arg HERMES_VERSION={{version}}
+
+# Stream the locally built hermes-agent image to the remote k3s node.
+upload-hermes-agent tag=hermes_agent_tag:
+    @just _upload "{{hermes_agent_image}}:{{tag}}"
+
 # Build + conditionally upload helpers used by `up`. Each skips the upload step
 # when the build did not change the image ID.
 ship-protonmail-bridge:
@@ -135,6 +151,9 @@ ship-signal-cli:
 
 ship-hermes-skills:
     @just _ship "{{hermes_skills_image}}:{{hermes_skills_tag}}" build-hermes-skills
+
+ship-hermes-agent:
+    @just _ship "{{hermes_agent_image}}:{{hermes_agent_tag}}" build-hermes-agent
 
 # Create/refresh the Kubernetes Secrets for each service from the operator's
 # shell env. Idempotent: re-run after changing values to roll the secret.
