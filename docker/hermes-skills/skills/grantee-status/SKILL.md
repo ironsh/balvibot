@@ -1,6 +1,6 @@
 ---
 name: grantee-status
-description: Summarize a single grantee's recent email activity as a short bulleted status — what they're waiting on us for, notable items, and what the most recent threads were about. Use whenever the team asks for the status, state, or recent activity of one named grantee, including phrasings like "where are we with X", "what's going on with X", "status on X", "summarize comms with X", "check on X", "grantee status for X", or just "X status". Pulls data from the mail-indexer MCP server.
+description: Summarize a single grantee's recent email activity as a short bulleted status — what they're waiting on us for, notable items, and what the most recent threads were about. Use whenever the team asks for the status, state, or recent activity of one named grantee, including phrasings like "where are we with X", "what's going on with X", "status on X", "summarize comms with X", "check on X", "grantee status for X", or just "X status". Pulls data from the philos-api MCP server.
 license: Proprietary
 metadata:
   version: "0.2.0"
@@ -10,7 +10,7 @@ metadata:
 # grantee-status
 
 Given a grantee's name (or partial name), pull their recent email activity from
-the `mail-indexer` MCP server and return a short bulleted status report.
+the `philos-api` MCP server and return a short bulleted status report.
 
 ## When to use
 
@@ -31,7 +31,7 @@ for Jane", "check on Acme".
 ## Procedure
 
 1. **Resolve the grantee.**
-   - Call `mail-indexer.list_grantees`.
+   - Call `philos-api.list_grantees`.
    - Match `name` against each grantee's `name` and `emails`
      (case-insensitive substring). If exactly one matches, use it.
    - If zero match, report that and stop. Suggest the closest names.
@@ -41,13 +41,13 @@ for Jane", "check on Acme".
 2. **Pull recent threads.**
    - Compute `since` if not provided. Example: if today is `2026-05-21`, 90
      days ago is `2026-02-20T00:00:00Z`.
-   - Call `mail-indexer.list_threads_for_grantee` with `grantee_id` from
+   - Call `philos-api.list_threads_for_grantee` with `grantee_id` from
      step 1, the computed `since`, and `limit: 50`.
    - Sort by `last_seen_at` descending. Keep the top `limit` (default 10)
      for deep reads.
 
 3. **Read thread contents.**
-   - For each kept thread, call `mail-indexer.get_thread` to get the full
+   - For each kept thread, call `philos-api.get_thread` to get the full
      message list. Read subjects, participants, dates, and body snippets.
    - Identify threads whose latest message is from the grantee (they sent
      the last reply) — these are what they're **waiting on us** for.
