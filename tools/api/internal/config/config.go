@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	DefaultPollInterval = 5 * time.Minute
-	DefaultMCPBindAddr  = ":8080"
+	DefaultPollInterval     = 5 * time.Minute
+	DefaultMCPBindAddr      = ":8080"
+	DefaultApprovalBindAddr = ":8090"
 	// DefaultBrokerToken is the literal placeholder iron-proxy's gcp_auth
 	// transform expects in the Authorization header. iron-proxy swaps it for
 	// a real service-account access token at the wire.
@@ -30,6 +31,14 @@ type Config struct {
 	// MCP server (serve).
 	MCPBindAddr    string
 	MCPBearerToken string
+
+	// Approval service (approve-serve).
+	ApprovalBindAddr string
+	// Bootstrap operator, seeded by `api migrate up`. The fingerprint is
+	// derived from the public key, so only the email + authorized_keys line are
+	// supplied. Both empty = no bootstrap.
+	ApprovalBootstrapEmail  string
+	ApprovalBootstrapPubKey string
 
 	// Mail indexer (index-mail).
 	IMAPAddr       string
@@ -55,6 +64,11 @@ func FromEnv() (*Config, error) {
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		MCPBindAddr:    getenvDefault("MCP_BIND_ADDR", DefaultMCPBindAddr),
 		MCPBearerToken: os.Getenv("MCP_BEARER_TOKEN"),
+
+		ApprovalBindAddr: getenvDefault("APPROVAL_BIND_ADDR", DefaultApprovalBindAddr),
+
+		ApprovalBootstrapEmail:  strings.TrimSpace(os.Getenv("APPROVAL_BOOTSTRAP_EMAIL")),
+		ApprovalBootstrapPubKey: strings.TrimSpace(os.Getenv("APPROVAL_BOOTSTRAP_PUBKEY")),
 
 		IMAPAddr:       os.Getenv("IMAP_ADDR"),
 		IMAPUser:       os.Getenv("IMAP_USER"),
@@ -117,6 +131,17 @@ func (c *Config) RequireMCP() error {
 	}
 	if c.MCPBearerToken == "" {
 		return fmt.Errorf("MCP_BEARER_TOKEN is required")
+	}
+	return nil
+}
+
+// RequireApproval validates the approve-serve subcommand's requirements.
+func (c *Config) RequireApproval() error {
+	if err := c.RequireDB(); err != nil {
+		return err
+	}
+	if c.ApprovalBindAddr == "" {
+		return fmt.Errorf("APPROVAL_BIND_ADDR is required")
 	}
 	return nil
 }

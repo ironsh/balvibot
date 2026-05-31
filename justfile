@@ -95,6 +95,12 @@ build-api tag=api_tag:
 upload-api tag=api_tag:
     @just _upload "{{api_image}}:{{tag}}"
 
+# Build the offline operator CLI (balvi-approve) for the host. It is an HTTP
+# client only (no DB), so it ships as a plain binary, not a container image.
+build-approve:
+    @cd tools/api && go build -trimpath -ldflags="-s -w" -o ../../dist/balvi-approve ./cmd/approve
+    @echo "built dist/balvi-approve"
+
 # Build the signal-cli image. The Dockerfile pulls the pinned upstream tarball
 # from github.com/AsamK/signal-cli at build time.
 build-signal-cli version=signal_cli_version tag=signal_cli_tag:
@@ -148,6 +154,9 @@ ship-hermes-agent:
 #                  (real LLM keys — hermes itself never sees them)
 #   postgres:      PHILOS_POSTGRES_PASSWORD (URL-safe; goes into DATABASE_URL)
 #   api:           PHILOS_IMAP_USER, PHILOS_IMAP_PASS, PHILOS_API_MCP_TOKEN
+#   api (optional): PHILOS_APPROVAL_BOOTSTRAP_EMAIL + PHILOS_APPROVAL_BOOTSTRAP_PUBKEY
+#                  (an authorized_keys line) seed the first approval operator on
+#                  `api migrate up`; the fingerprint is derived from the key.
 #   iron-proxy gcp_auth: PHILOS_GCP_SA_KEY_FILE (path to the SA JSON keyfile;
 #                        only iron-proxy sees it, gdocs-indexer never does)
 bootstrap-secrets:
@@ -190,6 +199,8 @@ bootstrap-secrets:
             --namespace={{philos_namespace}} \
             --from-literal=DATABASE_URL="$database_url" \
             --from-literal=MCP_BEARER_TOKEN="$PHILOS_API_MCP_TOKEN" \
+            --from-literal=APPROVAL_BOOTSTRAP_EMAIL="${PHILOS_APPROVAL_BOOTSTRAP_EMAIL:-}" \
+            --from-literal=APPROVAL_BOOTSTRAP_PUBKEY="${PHILOS_APPROVAL_BOOTSTRAP_PUBKEY:-}" \
             --from-literal=IMAP_USER="$PHILOS_IMAP_USER" \
             --from-literal=IMAP_PASS="$PHILOS_IMAP_PASS" \
             --dry-run=client -o yaml | kubectl apply -f -; \

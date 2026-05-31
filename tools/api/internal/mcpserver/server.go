@@ -1,12 +1,16 @@
 // Package mcpserver exposes the unified corpus (grantees, mail, docs) over a
-// single Streamable HTTP MCP endpoint. Read-only: there are no tools that
-// mutate state (grantee/source administration is the CLI's job), and no tool
-// reads unregistered_docs or blocked_owners.
+// single Streamable HTTP MCP endpoint. The corpus tools are read-only
+// (grantee/source administration is the CLI's job), and no tool reads
+// unregistered_docs or blocked_owners. The one mutating tool, enqueue_action,
+// does not touch the corpus: it queues a side-effecting action into
+// approval_actions for out-of-band human approval (executed later by the
+// separate approval service), so the agent never acts without sign-off.
 package mcpserver
 
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ironsh/balvibot/tools/api/internal/actions"
 	"github.com/ironsh/balvibot/tools/api/internal/store"
 )
 
@@ -145,6 +150,15 @@ func buildServer(st *store.Store) *mcp.Server {
 		Description: "List attachment metadata for a message (no file contents). Use the numeric message id from list_emails_for_grantee.",
 	}, h.listAttachments)
 
+	// ---- actions (write-for-approval) ----
+	// Each mutating tool does NOT act immediately: it writes a pending row to
+	// the approval queue and returns an approval_id. An operator approves it
+	// out-of-band with balvi-approve, and only then does the executor run it.
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "add_grantee",
+		Description: "Request creation of a new grantee. This does NOT create the grantee immediately: it queues the action for human approval and returns an approval_id. The grantee is created only after an operator approves it.",
+	}, h.addGrantee)
+
 	// ---- docs ----
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_documents_for_grantee",
@@ -178,6 +192,24 @@ func parseTimeBound(s string) (*time.Time, error) {
 		return nil, fmt.Errorf("invalid timestamp %q: expected RFC 3339", s)
 	}
 	return &t, nil
+}
+
+// ---------- actions (write-for-approval) ----------
+
+func (h *handlers) addGrantee(ctx context.Context, _ *mcp.CallToolRequest, in *AddGranteeInput) (*mcp.CallToolResult, *EnqueueResult, error) {
+	slug := strings.TrimSpace(in.Slug)
+	if slug == "" {
+		return nil, nil, errors.New("slug is required")
+	}
+	args, err := json.Marshal(actions.AddGranteeArgs{Slug: slug, DisplayName: in.DisplayName})
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := h.st.EnqueueAction(ctx, actions.ActionAddGrantee, args, nil, in.RequestedBy)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, &EnqueueResult{ApprovalID: id, Action: actions.ActionAddGrantee, Status: store.ApprovalPending}, nil
 }
 
 // ---------- grantees ----------

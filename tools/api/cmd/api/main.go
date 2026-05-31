@@ -21,6 +21,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ironsh/balvibot/tools/api/internal/actions"
+	"github.com/ironsh/balvibot/tools/api/internal/approval"
+	"github.com/ironsh/balvibot/tools/api/internal/approvalserver"
 	"github.com/ironsh/balvibot/tools/api/internal/cas"
 	"github.com/ironsh/balvibot/tools/api/internal/config"
 	"github.com/ironsh/balvibot/tools/api/internal/db"
@@ -52,6 +55,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newMigrateCmd(),
 		newServeCmd(),
+		newApproveServeCmd(),
+		newApproveUserCmd(),
 		newIndexMailCmd(),
 		newSyncGdocsCmd(),
 		newGranteeCmd(),
@@ -82,6 +87,36 @@ func openStore(ctx context.Context) (*store.Store, *config.Config, error) {
 	return store.New(pool), cfg, nil
 }
 
+// bootstrapApprovalUser seeds the initial approval operator from
+// APPROVAL_BOOTSTRAP_EMAIL + APPROVAL_BOOTSTRAP_PUBKEY (an authorized_keys
+// line). The fingerprint is derived from the key. It runs after `api migrate
+// up` so a fresh deployment has one authorized approver without a manual step;
+// it is an idempotent upsert, so re-running migrations keeps the key current.
+// No-op when neither env var is set.
+func bootstrapApprovalUser(ctx context.Context, d *sql.DB) error {
+	cfg, err := config.FromEnv()
+	if err != nil {
+		return err
+	}
+	email := cfg.ApprovalBootstrapEmail
+	pubKey := cfg.ApprovalBootstrapPubKey
+	if email == "" && pubKey == "" {
+		return nil
+	}
+	if email == "" || pubKey == "" {
+		return errors.New("APPROVAL_BOOTSTRAP_EMAIL and APPROVAL_BOOTSTRAP_PUBKEY must be set together")
+	}
+	fp, err := approval.Fingerprint(pubKey)
+	if err != nil {
+		return fmt.Errorf("bootstrap pubkey: %w", err)
+	}
+	if err := store.New(d).UpsertApprovalUser(ctx, email, pubKey, fp); err != nil {
+		return fmt.Errorf("bootstrap approval user: %w", err)
+	}
+	fmt.Printf("ok: bootstrapped approval user %s (%s)\n", email, fp)
+	return nil
+}
+
 // ---------- migrate ----------
 
 func newMigrateCmd() *cobra.Command {
@@ -101,14 +136,17 @@ func newMigrateCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		&cobra.Command{
-			Use: "up", Short: "Apply all pending migrations.", Args: cobra.NoArgs,
-			RunE: func(_ *cobra.Command, _ []string) error {
+			Use: "up", Short: "Apply all pending migrations, then seed the bootstrap approval user.", Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
 				d, err := open()
 				if err != nil {
 					return err
 				}
 				defer d.Close()
-				return db.MigrateUp(d)
+				if err := db.MigrateUp(d); err != nil {
+					return err
+				}
+				return bootstrapApprovalUser(cmd.Context(), d)
 			},
 		},
 		&cobra.Command{
@@ -169,6 +207,151 @@ func newServeCmd() *cobra.Command {
 				BindAddr:    cfg.MCPBindAddr,
 				BearerToken: cfg.MCPBearerToken,
 			}, st, logger)
+		},
+	}
+}
+
+// ---------- approve-serve (approval service) ----------
+
+func newApproveServeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "approve-serve",
+		Short: "Run the approval service (MCP enqueue endpoint + operator approval API).",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := config.FromEnv()
+			if err != nil {
+				return err
+			}
+			if err := cfg.RequireApproval(); err != nil {
+				return err
+			}
+			logger := setupLogger(cfg.LogLevel)
+
+			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer cancel()
+
+			pool, err := db.Open(ctx, cfg.DatabaseURL)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			st := store.New(pool)
+
+			// Executor: the real handlers for each approval-gated action. The
+			// MCP tools on the api server enqueue these; they run here only
+			// after an operator's signature is verified.
+			registry := approval.NewRegistry()
+			actions.Register(registry, st)
+
+			logger.Info("starting api approve-serve", "approval_bind", cfg.ApprovalBindAddr)
+			return approvalserver.Run(ctx, approvalserver.Config{
+				BindAddr: cfg.ApprovalBindAddr,
+			}, st, registry, logger)
+		},
+	}
+}
+
+// ---------- approve-user admin ----------
+
+func newApproveUserCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "approve-user",
+		Short: "Manage operators authorized to approve actions (email + SSH public key).",
+	}
+	cmd.AddCommand(
+		newApproveUserAddCmd(),
+		newApproveUserListCmd(),
+		newApproveUserRemoveCmd(),
+	)
+	return cmd
+}
+
+func newApproveUserAddCmd() *cobra.Command {
+	var keyFile string
+	cmd := &cobra.Command{
+		Use:   "add <email>",
+		Short: "Authorize an operator by email and SSH public key (upsert).",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			email := strings.TrimSpace(args[0])
+			if email == "" {
+				return errors.New("email required")
+			}
+			if keyFile == "" {
+				return errors.New("--key-file is required (path to an SSH public key)")
+			}
+			raw, err := os.ReadFile(keyFile)
+			if err != nil {
+				return fmt.Errorf("read key file: %w", err)
+			}
+			pubKey := strings.TrimSpace(string(raw))
+			fp, err := approval.Fingerprint(pubKey)
+			if err != nil {
+				return err
+			}
+			st, _, err := openStore(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+			if err := st.UpsertApprovalUser(cmd.Context(), email, pubKey, fp); err != nil {
+				return err
+			}
+			fmt.Printf("ok: %s authorized (%s)\n", email, fp)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&keyFile, "key-file", "", "Path to the operator's SSH public key (authorized_keys format).")
+	_ = cmd.MarkFlagRequired("key-file")
+	return cmd
+}
+
+func newApproveUserListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List authorized operators.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			st, _, err := openStore(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+			users, err := st.ListApprovalUsers(cmd.Context())
+			if err != nil {
+				return err
+			}
+			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "EMAIL\tFINGERPRINT")
+			for _, u := range users {
+				fmt.Fprintf(tw, "%s\t%s\n", u.Email, u.Fingerprint)
+			}
+			return tw.Flush()
+		},
+	}
+}
+
+func newApproveUserRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <email>",
+		Short: "Revoke an operator's approval authorization.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			email := strings.TrimSpace(args[0])
+			if email == "" {
+				return errors.New("email required")
+			}
+			st, _, err := openStore(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+			if err := st.RemoveApprovalUser(cmd.Context(), email); err != nil {
+				return err
+			}
+			fmt.Printf("ok: %s revoked\n", email)
+			return nil
 		},
 	}
 }
