@@ -107,6 +107,35 @@ func (s *Store) ListActionsByStatus(ctx context.Context, status string) ([]Appro
 	return out, rows.Err()
 }
 
+// ListActions returns approval actions, newest first. When status is empty all
+// actions are returned; otherwise only those matching the given status.
+func (s *Store) ListActions(ctx context.Context, status string) ([]ApprovalAction, error) {
+	const cols = `id, action, args, metadata, status, requested_by, approved_by,
+	              created_at, approved_at, executed_at, last_error`
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if status == "" {
+		rows, err = s.query(ctx, `SELECT `+cols+` FROM approval_actions ORDER BY id DESC`)
+	} else {
+		rows, err = s.query(ctx, `SELECT `+cols+` FROM approval_actions WHERE status = ? ORDER BY id DESC`, status)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ApprovalAction
+	for rows.Next() {
+		a, err := scanAction(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *a)
+	}
+	return out, rows.Err()
+}
+
 // MarkActionExecuted records a successful approval+dispatch.
 func (s *Store) MarkActionExecuted(ctx context.Context, id int64, approvedBy string) error {
 	now := time.Now().Unix()

@@ -217,6 +217,10 @@ func buildServer(st *store.Store, drv DriveLookup) *mcp.Server {
 		Name:        "whitelist_doc",
 		Description: "Request that a Google Drive doc or folder be ingested (indexed) for an existing grantee. Pass the grantee_id and the Drive id; whether it is a folder or a single doc is detected automatically. This does NOT index it immediately: it queues the action for human approval and returns an approval_id. Indexing begins only after an operator approves it.",
 	}, h.whitelistDoc)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_approvals",
+		Description: "List queued approval actions with their current state (pending, executed, failed, rejected), newest first. Each entry includes the action name, the JSON args that were requested, who requested it, who approved it, timestamps, and any last error. Pass an optional status to filter; omit it to see everything. Use this to help debug the approval queue with a user.",
+	}, h.listApprovals)
 
 	// ---- docs ----
 	mcp.AddTool(s, &mcp.Tool{
@@ -255,6 +259,24 @@ func parseTimeBound(s string) (*time.Time, error) {
 }
 
 // ---------- actions (write-for-approval) ----------
+
+func (h *handlers) listApprovals(ctx context.Context, _ *mcp.CallToolRequest, in *ListApprovalsInput) (*mcp.CallToolResult, *ListApprovalsOutput, error) {
+	status := strings.TrimSpace(in.Status)
+	switch status {
+	case "", store.ApprovalPending, store.ApprovalExecuted, store.ApprovalFailed, store.ApprovalRejected:
+		// valid
+	default:
+		return nil, nil, fmt.Errorf("invalid status %q: expected one of pending, executed, failed, rejected", status)
+	}
+	queued, err := h.st.ListActions(ctx, status)
+	if err != nil {
+		return nil, nil, err
+	}
+	if queued == nil {
+		queued = []store.ApprovalAction{}
+	}
+	return nil, &ListApprovalsOutput{Approvals: queued}, nil
+}
 
 func (h *handlers) addGrantee(ctx context.Context, _ *mcp.CallToolRequest, in *AddGranteeInput) (*mcp.CallToolResult, *EnqueueResult, error) {
 	slug := strings.TrimSpace(in.Slug)
