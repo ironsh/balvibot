@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: gdocs-indexer
-          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
-          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}"
+          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
           args: ["sync-gdocs"]
           env:
             {{- range $k, $v := .Values.gdocsIndexer.env }}

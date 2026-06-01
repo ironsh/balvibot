@@ -1,10 +1,28 @@
 partOf: philanthropy-os
 
+# Registry prefix prepended to every locally-built image (api, protonmail-bridge,
+# signal-cli, hermes-agent, hermes-skills). Empty here so the committed chart
+# stays environment-agnostic and resolves these from the node's containerd store
+# as before. Set it in values.local.yaml (gitignored) to pull from the on-node
+# registry instead, matching the push target in the justfile, e.g.:
+#   imageRegistry: localhost:5000
+# Public images (postgres, busybox, iron-proxy) ignore this and keep pulling
+# from their upstream registries.
+imageRegistry: ""
+
+# Default imagePullPolicy for the locally-built images. Always because those
+# images ship under fixed tags (e.g. api:0.1.0): with IfNotPresent the kubelet
+# would keep serving whatever it already cached for that tag and never pick up a
+# fresh push. Pulls hit the on-node registry, so Always is cheap. Override
+# chart-wide here (or per image via that image's `pullPolicy`) — e.g. set
+# IfNotPresent in values.local.yaml if you bump tags per build instead. Public
+# images keep their own pullPolicy and ignore this.
+imagePullPolicy: Always
+
 protonmailBridge:
   image:
     repository: philanthropy-os/protonmail-bridge
     tag: v3.19.0
-    pullPolicy: IfNotPresent
   storage: 100Mi
   ports:
     smtp: 25
@@ -40,7 +58,6 @@ api:
   image:
     repository: philanthropy-os/api
     tag: 0.1.0
-    pullPolicy: IfNotPresent
   ports:
     mcp: 8080
   # serve (MCP) env. DATABASE_URL + MCP_BEARER_TOKEN come from api-secrets.
@@ -77,7 +94,6 @@ approval:
   image:
     repository: philanthropy-os/api
     tag: 0.1.0
-    pullPolicy: IfNotPresent
   ports:
     approval: 8090
   env:
@@ -173,7 +189,6 @@ signalCli:
   image:
     repository: philanthropy-os/signal-cli
     tag: 0.14.3
-    pullPolicy: IfNotPresent
   storage: 1Gi
   ports:
     http: 8080
@@ -193,7 +208,6 @@ hermesAgent:
   image:
     repository: philanthropy-os/hermes-agent
     tag: v2026.5.29.2-mention1
-    pullPolicy: IfNotPresent
   # RuntimeClass for the hermes pod. kata-deploy creates one RuntimeClass per
   # shim it installs (e.g. kata-qemu, kata-clh, kata-fc). Set empty to use the
   # node's default container runtime instead of a Kata VM.
@@ -240,7 +254,6 @@ hermesAgent:
     image:
       repository: philanthropy-os/hermes-skills
       tag: 0.2.0
-      pullPolicy: IfNotPresent
   # Signal integration. Leave `account` empty to disable: when unset, no
   # SIGNAL_* env vars are emitted and hermes runs without a Signal dependency.
   # SIGNAL_HTTP_URL is derived from the in-cluster signal-cli Service.

@@ -166,8 +166,8 @@ spec:
         # The chart owns that category subtree; user/agent-authored skills in
         # other categories on the PVC remain writable.
         - name: init-skills
-          image: "{{ $skills.image.repository }}:{{ $skills.image.tag }}"
-          imagePullPolicy: {{ $skills.image.pullPolicy }}
+          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" $skills.image) }}"
+          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" $skills.image "default" $.Values.imagePullPolicy) }}
           command:
             - sh
             - -euc
@@ -178,8 +178,8 @@ spec:
         {{- end }}
       containers:
         - name: hermes-agent
-          image: "{{ .Values.hermesAgent.image.repository }}:{{ .Values.hermesAgent.image.tag }}"
-          imagePullPolicy: {{ .Values.hermesAgent.image.pullPolicy }}
+          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.hermesAgent.image) }}"
+          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.hermesAgent.image "default" $.Values.imagePullPolicy) }}
           args: ["gateway", "run"]
           ports:
             - name: gateway

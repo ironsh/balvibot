@@ -22,8 +22,8 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: migrate
-          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
-          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}"
+          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
           args: ["migrate", "up"]
           envFrom:
             # DATABASE_URL, plus the optional APPROVAL_BOOTSTRAP_EMAIL /

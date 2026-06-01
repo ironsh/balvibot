@@ -51,8 +51,8 @@ spec:
     spec:
       containers:
         - name: protonmail-bridge
-          image: "{{ .Values.protonmailBridge.image.repository }}:{{ .Values.protonmailBridge.image.tag }}"
-          imagePullPolicy: {{ .Values.protonmailBridge.image.pullPolicy }}
+          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.protonmailBridge.image) }}"
+          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.protonmailBridge.image "default" $.Values.imagePullPolicy) }}
           # stdin/tty keep the container ready for the interactive `init`/`login`
           # flow (`kubectl exec ... -- /bin/bash`) described in the project docs.
           stdin: true

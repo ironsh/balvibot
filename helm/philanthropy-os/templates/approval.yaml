@@ -31,8 +31,8 @@ spec:
     spec:
       containers:
         - name: approval
-          image: "{{ .Values.approval.image.repository }}:{{ .Values.approval.image.tag }}"
-          imagePullPolicy: {{ .Values.approval.image.pullPolicy }}
+          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.approval.image) }}"
+          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.approval.image "default" $.Values.imagePullPolicy) }}
           args: ["approve-serve"]
           env:
             - name: APPROVAL_BIND_ADDR
