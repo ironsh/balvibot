@@ -162,11 +162,15 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # The api server, both indexers, and the migrate Job are the only clients.
+    # The api server, the approval server, both indexers, and the migrate Job
+    # are the only clients.
     - from:
         - podSelector:
             matchLabels:
               {{- include "philos.selectorLabels" (dict "name" "api") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "philos.selectorLabels" (dict "name" "approval") | nindent 14 }}
         - podSelector:
             matchLabels:
               {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 14 }}
