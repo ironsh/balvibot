@@ -295,6 +295,10 @@ func TestListApprovals(t *testing.T) {
 	// Newest first: the whitelist_doc action precedes the add_grantee one.
 	require.Equal(t, second.ApprovalID, all.Approvals[0].ID)
 	require.Equal(t, "whitelist_doc", all.Approvals[0].Action)
+	// Args round-trips as a decoded object (not a raw byte array), which is
+	// what the output schema now advertises.
+	require.Equal(t, "acme", all.Approvals[0].Args["grantee_id"])
+	require.Equal(t, "doc-x", all.Approvals[0].Args["drive_id"])
 	require.Equal(t, first.ApprovalID, all.Approvals[1].ID)
 	require.Equal(t, store.ApprovalPending, all.Approvals[1].Status)
 	require.Equal(t, "tester", all.Approvals[1].RequestedBy)
