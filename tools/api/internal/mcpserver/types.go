@@ -18,6 +18,17 @@ type EnqueueResult struct {
 	Status     string `json:"status"`
 }
 
+// ListApprovalsInput filters the approval queue. An empty status returns every
+// action regardless of state.
+type ListApprovalsInput struct {
+	Status string `json:"status,omitempty" jsonschema:"Optional status filter: pending, executed, failed, or rejected. Omit to return actions in every state."`
+}
+
+// ListApprovalsOutput is the approval queue, newest first.
+type ListApprovalsOutput struct {
+	Approvals []store.ApprovalAction `json:"approvals"`
+}
+
 // AddGranteeInput requests creation of a new grantee (queued for approval).
 type AddGranteeInput struct {
 	Slug         string `json:"slug" jsonschema:"Stable grantee id/slug to create (e.g. acme-foundation). Must be unique."`

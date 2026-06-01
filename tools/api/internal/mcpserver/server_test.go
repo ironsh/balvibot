@@ -271,6 +271,48 @@ func TestWhitelistDocResolvesType(t *testing.T) {
 	require.Contains(t, msg, "grantee_not_found")
 }
 
+// TestListApprovals enqueues a couple of actions and reads them back, both
+// unfiltered (newest first) and filtered by status. An invalid status is
+// rejected.
+func TestListApprovals(t *testing.T) {
+	st := newTestStore(t)
+	endpoint, token := startTestServer(t, st)
+	sess := newClientSession(t, endpoint, token)
+
+	// Empty queue returns an empty (non-null) list.
+	empty := callTool[ListApprovalsOutput](t, sess, "list_approvals", map[string]any{})
+	require.Empty(t, empty.Approvals)
+
+	first := callTool[EnqueueResult](t, sess, "add_grantee", map[string]any{
+		"slug": "gamma", "requested_by": "tester",
+	})
+	second := callTool[EnqueueResult](t, sess, "whitelist_doc", map[string]any{
+		"grantee_id": "acme", "drive_id": "doc-x",
+	})
+
+	all := callTool[ListApprovalsOutput](t, sess, "list_approvals", map[string]any{})
+	require.Len(t, all.Approvals, 2)
+	// Newest first: the whitelist_doc action precedes the add_grantee one.
+	require.Equal(t, second.ApprovalID, all.Approvals[0].ID)
+	require.Equal(t, "whitelist_doc", all.Approvals[0].Action)
+	require.Equal(t, first.ApprovalID, all.Approvals[1].ID)
+	require.Equal(t, store.ApprovalPending, all.Approvals[1].Status)
+	require.Equal(t, "tester", all.Approvals[1].RequestedBy)
+
+	// Status filter narrows the set.
+	pending := callTool[ListApprovalsOutput](t, sess, "list_approvals", map[string]any{
+		"status": store.ApprovalPending,
+	})
+	require.Len(t, pending.Approvals, 2)
+	executed := callTool[ListApprovalsOutput](t, sess, "list_approvals", map[string]any{
+		"status": store.ApprovalExecuted,
+	})
+	require.Empty(t, executed.Approvals)
+
+	msg := callToolExpectError(t, sess, "list_approvals", map[string]any{"status": "bogus"})
+	require.Contains(t, msg, "invalid status")
+}
+
 func TestGetDocumentCrossGranteeRefused(t *testing.T) {
 	st := newTestStore(t)
 	endpoint, token := startTestServer(t, st)
