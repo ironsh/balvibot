@@ -24,9 +24,30 @@ type ListApprovalsInput struct {
 	Status string `json:"status,omitempty" jsonschema:"Optional status filter: pending, executed, failed, or rejected. Omit to return actions in every state."`
 }
 
+// ApprovalView is the wire representation of a queued approval action. It
+// mirrors store.ApprovalAction but renders the Args and Metadata columns as
+// decoded objects rather than store.ApprovalAction's json.RawMessage. A
+// json.RawMessage is a []byte, which the SDK reflects into the output schema as
+// a (nullable) array; the executor returns the raw JSON object verbatim, so the
+// response fails its own schema. Typing these as objects matches the actual
+// payload (each action's args/metadata are key/value maps).
+type ApprovalView struct {
+	ID          int64          `json:"id"`
+	Action      string         `json:"action"`
+	Args        map[string]any `json:"args"`
+	Metadata    map[string]any `json:"metadata"`
+	Status      string         `json:"status"`
+	RequestedBy string         `json:"requested_by,omitempty"`
+	ApprovedBy  string         `json:"approved_by,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	ApprovedAt  *time.Time     `json:"approved_at,omitempty"`
+	ExecutedAt  *time.Time     `json:"executed_at,omitempty"`
+	LastError   string         `json:"last_error,omitempty"`
+}
+
 // ListApprovalsOutput is the approval queue, newest first.
 type ListApprovalsOutput struct {
-	Approvals []store.ApprovalAction `json:"approvals"`
+	Approvals []ApprovalView `json:"approvals"`
 }
 
 // AddGranteeInput requests creation of a new grantee (queued for approval).

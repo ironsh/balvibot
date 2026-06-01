@@ -272,10 +272,43 @@ func (h *handlers) listApprovals(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, nil, err
 	}
-	if queued == nil {
-		queued = []store.ApprovalAction{}
+	views := make([]ApprovalView, 0, len(queued))
+	for _, a := range queued {
+		v, err := toApprovalView(a)
+		if err != nil {
+			return nil, nil, err
+		}
+		views = append(views, v)
 	}
-	return nil, &ListApprovalsOutput{Approvals: queued}, nil
+	return nil, &ListApprovalsOutput{Approvals: views}, nil
+}
+
+// toApprovalView converts a stored action into its wire form, decoding the raw
+// JSON Args/Metadata columns into objects so the result matches the output
+// schema (see ApprovalView).
+func toApprovalView(a store.ApprovalAction) (ApprovalView, error) {
+	v := ApprovalView{
+		ID:          a.ID,
+		Action:      a.Action,
+		Status:      a.Status,
+		RequestedBy: a.RequestedBy,
+		ApprovedBy:  a.ApprovedBy,
+		CreatedAt:   a.CreatedAt,
+		ApprovedAt:  a.ApprovedAt,
+		ExecutedAt:  a.ExecutedAt,
+		LastError:   a.LastError,
+	}
+	if len(a.Args) > 0 {
+		if err := json.Unmarshal(a.Args, &v.Args); err != nil {
+			return ApprovalView{}, fmt.Errorf("decode args for approval %d: %w", a.ID, err)
+		}
+	}
+	if len(a.Metadata) > 0 {
+		if err := json.Unmarshal(a.Metadata, &v.Metadata); err != nil {
+			return ApprovalView{}, fmt.Errorf("decode metadata for approval %d: %w", a.ID, err)
+		}
+	}
+	return v, nil
 }
 
 func (h *handlers) addGrantee(ctx context.Context, _ *mcp.CallToolRequest, in *AddGranteeInput) (*mcp.CallToolResult, *EnqueueResult, error) {
