@@ -61,14 +61,19 @@ _build image dockerfile *args:
 # Stream a locally built image over SSH to $PHILOS_K3S_NODE and import it into
 # the node's k3s containerd image store. After import, stamp the local docker
 # image ID onto the image as a `balvi.image-id` label so `_ship` can later tell,
-# from the node's own store, whether it already holds this exact build.
+# from the node's own store, whether it already holds this exact build. The
+# image is labelled under its containerd ref: importing a hostless name like
+# `philanthropy-os/api:0.1.0` normalizes to `docker.io/philanthropy-os/api:0.1.0`
+# (the same ref the kubelet resolves to), so we target that. Labelling is
+# best-effort: a failure only costs a redundant upload next time.
 [private]
 _upload image:
     @set -eu; \
         [ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }; \
         local_id=$(docker image inspect --format '{{{{.Id}}' "{{image}}"); \
         docker save "{{image}}" | ssh "$PHILOS_K3S_NODE" 'sudo k3s ctr images import -'; \
-        ssh "$PHILOS_K3S_NODE" "sudo k3s ctr images label '{{image}}' balvi.image-id='$local_id'" >/dev/null
+        ssh "$PHILOS_K3S_NODE" "sudo k3s ctr images label 'docker.io/{{image}}' balvi.image-id='$local_id'" >/dev/null \
+            || echo "warning: could not label docker.io/{{image}} on k3s node; it will be re-uploaded next time" >&2
 
 # Build via the named recipe, then upload to the k3s node only if the node's
 # containerd store does not already hold this exact image, matched by the
@@ -86,7 +91,7 @@ _ship image build_recipe:
         else \
             [ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }; \
             local_id=$(docker image inspect --format '{{{{.Id}}' "{{image}}"); \
-            filter="name==\"{{image}}\",labels.\"balvi.image-id\"==\"$local_id\""; \
+            filter="name==\"docker.io/{{image}}\",labels.\"balvi.image-id\"==\"$local_id\""; \
             match=$(ssh "$PHILOS_K3S_NODE" "sudo k3s ctr images ls '$filter' -q" 2>/dev/null || true); \
             if [ -n "$match" ]; then \
                 echo "{{image}} already on k3s node ($local_id); skipping upload"; \
