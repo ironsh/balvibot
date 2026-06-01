@@ -77,6 +77,16 @@ type WhitelistDocInput struct {
 	RequestedBy  string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
 }
 
+// AuthorizeGranteeEmailInput requests that a sender email address be authorized
+// for an existing grantee (queued for approval). Once approved, the mail indexer
+// tags messages from this sender with the grantee_id.
+type AuthorizeGranteeEmailInput struct {
+	GranteeID    string `json:"grantee_id" jsonschema:"Existing grantee id (from list_grantees) to authorize the email for."`
+	Email        string `json:"email" jsonschema:"Sender email address to associate with this grantee. Matched case-insensitively against the From: address."`
+	SignalNumber string `json:"signal_number,omitempty" jsonschema:"Optional Signal phone number that requested this action."`
+	RequestedBy  string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
+}
+
 // ---------- grantees ----------
 
 type ListGranteesInput struct{}

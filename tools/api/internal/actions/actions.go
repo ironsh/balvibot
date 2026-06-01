@@ -9,9 +9,10 @@ package actions
 // Action name constants. The enqueueing MCP tool and the executor handler key
 // off the same string.
 const (
-	ActionAddGrantee      = "add_grantee"
-	ActionAddApprovalUser = "add_approval_user"
-	ActionWhitelistDoc    = "whitelist_doc"
+	ActionAddGrantee            = "add_grantee"
+	ActionAddApprovalUser       = "add_approval_user"
+	ActionWhitelistDoc          = "whitelist_doc"
+	ActionAuthorizeGranteeEmail = "authorize_grantee_email"
 )
 
 // AddGranteeArgs is the JSON stored in approval_actions.args for ActionAddGrantee.
@@ -35,6 +36,14 @@ type WhitelistDocArgs struct {
 	GranteeID  string `json:"grantee_id"`
 	DriveID    string `json:"drive_id"`
 	SourceType string `json:"source_type"`
+}
+
+// AuthorizeGranteeEmailArgs is the JSON stored in approval_actions.args for
+// ActionAuthorizeGranteeEmail. It maps a sender email address to a grantee so
+// the mail indexer's resolver tags that sender's messages with the grantee_id.
+type AuthorizeGranteeEmailArgs struct {
+	GranteeID string `json:"grantee_id"`
+	Email     string `json:"email"`
 }
 
 // Metadata is the JSON stored in approval_actions.metadata. It carries context

@@ -86,4 +86,32 @@ func Register(reg *approval.Registry, st *store.Store) {
 		})
 		return err
 	})
+
+	reg.Register(ActionAuthorizeGranteeEmail, func(ctx context.Context, raw json.RawMessage) error {
+		var a AuthorizeGranteeEmailArgs
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return err
+		}
+		a.GranteeID = strings.TrimSpace(a.GranteeID)
+		if a.GranteeID == "" {
+			return errors.New("grantee_id required")
+		}
+		a.Email = strings.TrimSpace(a.Email)
+		if a.Email == "" {
+			return errors.New("email required")
+		}
+		// The grantee must already exist; authorizing an email never creates one
+		// (use add_grantee for that). This stops a typo'd slug from attaching a
+		// sender to a grantee nobody meant to create.
+		if _, err := st.GetGrantee(ctx, a.GranteeID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("grantee %q does not exist", a.GranteeID)
+			}
+			return err
+		}
+		// Map the sender email to the grantee. The mail indexer's resolver reads
+		// grantee_emails to tag future (and back-fill prior) messages from this
+		// sender with the grantee_id.
+		return st.AddGranteeEmail(ctx, a.GranteeID, a.Email)
+	})
 }

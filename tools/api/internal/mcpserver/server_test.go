@@ -317,6 +317,41 @@ func TestListApprovals(t *testing.T) {
 	require.Contains(t, msg, "invalid status")
 }
 
+// TestAuthorizeGranteeEmail drives the enqueue-time path: a valid request queues
+// a pending action carrying the grantee/email args, while an unknown grantee or a
+// blank email is refused before anything is queued.
+func TestAuthorizeGranteeEmail(t *testing.T) {
+	st := newTestStore(t)
+	endpoint, token := startTestServer(t, st)
+	sess := newClientSession(t, endpoint, token)
+
+	res := callTool[EnqueueResult](t, sess, "authorize_grantee_email", map[string]any{
+		"grantee_id": "acme", "email": "new-sender@acme.org",
+	})
+	require.Equal(t, "authorize_grantee_email", res.Action)
+	require.Equal(t, store.ApprovalPending, res.Status)
+	require.NotZero(t, res.ApprovalID)
+
+	// The queued action carries the grantee and email args verbatim; nothing is
+	// applied yet (the mapping happens only at approval time).
+	all := callTool[ListApprovalsOutput](t, sess, "list_approvals", map[string]any{})
+	require.Len(t, all.Approvals, 1)
+	require.Equal(t, "acme", all.Approvals[0].Args["grantee_id"])
+	require.Equal(t, "new-sender@acme.org", all.Approvals[0].Args["email"])
+
+	// An unknown grantee is refused.
+	msg := callToolExpectError(t, sess, "authorize_grantee_email", map[string]any{
+		"grantee_id": "ghost", "email": "x@ghost.org",
+	})
+	require.Contains(t, msg, "grantee_not_found")
+
+	// A blank email is refused.
+	msg = callToolExpectError(t, sess, "authorize_grantee_email", map[string]any{
+		"grantee_id": "acme", "email": "  ",
+	})
+	require.Contains(t, msg, "email is required")
+}
+
 func TestGetDocumentCrossGranteeRefused(t *testing.T) {
 	st := newTestStore(t)
 	endpoint, token := startTestServer(t, st)

@@ -45,7 +45,7 @@ const serverInstructions = `This server exposes a read-only corpus (grantees, ma
 
 Read tools (list_grantees, list/get/search emails and threads, list/get documents) return data directly.
 
-Mutating tools (add_grantee, add_approval_user, whitelist_doc) do NOT take effect immediately. Each one queues the action for human approval and returns an approval_id (with status "pending"). The change is applied only after an operator approves that approval_id out-of-band using the balvi-approve CLI, which signs the request with their SSH key. When you call a mutating tool, report the returned approval_id back to the user and tell them it must be approved via balvi-approve before it takes effect; do not assume the action has been performed.`
+Mutating tools (add_grantee, add_approval_user, whitelist_doc, authorize_grantee_email) do NOT take effect immediately. Each one queues the action for human approval and returns an approval_id (with status "pending"). The change is applied only after an operator approves that approval_id out-of-band using the balvi-approve CLI, which signs the request with their SSH key. When you call a mutating tool, report the returned approval_id back to the user and tell them it must be approved via balvi-approve before it takes effect; do not assume the action has been performed.`
 
 type Config struct {
 	BindAddr    string
@@ -217,6 +217,10 @@ func buildServer(st *store.Store, drv DriveLookup) *mcp.Server {
 		Name:        "whitelist_doc",
 		Description: "Request that a Google Drive doc or folder be ingested (indexed) for an existing grantee. Pass the grantee_id and the Drive id; whether it is a folder or a single doc is detected automatically. This does NOT index it immediately: it queues the action for human approval and returns an approval_id. Indexing begins only after an operator approves it.",
 	}, h.whitelistDoc)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "authorize_grantee_email",
+		Description: "Request that a sender email address be authorized for an existing grantee, so the mail indexer tags messages from that sender with the grantee_id. This does NOT authorize it immediately: it queues the action for human approval and returns an approval_id. The email is associated only after an operator approves it; thereafter the indexer tags new messages from that sender and back-fills earlier ones on the same thread.",
+	}, h.authorizeGranteeEmail)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_approvals",
 		Description: "List queued approval actions with their current state (pending, executed, failed, rejected), newest first. Each entry includes the action name, the JSON args that were requested, who requested it, who approved it, timestamps, and any last error. Pass an optional status to filter; omit it to see everything. Use this to help debug the approval queue with a user.",
@@ -409,6 +413,38 @@ func (h *handlers) whitelistDoc(ctx context.Context, _ *mcp.CallToolRequest, in 
 		return nil, nil, err
 	}
 	return nil, &EnqueueResult{ApprovalID: id, Action: actions.ActionWhitelistDoc, Status: store.ApprovalPending}, nil
+}
+
+func (h *handlers) authorizeGranteeEmail(ctx context.Context, _ *mcp.CallToolRequest, in *AuthorizeGranteeEmailInput) (*mcp.CallToolResult, *EnqueueResult, error) {
+	grantee := strings.TrimSpace(in.GranteeID)
+	if grantee == "" {
+		return nil, nil, errors.New("grantee_id is required")
+	}
+	email := strings.TrimSpace(in.Email)
+	if email == "" {
+		return nil, nil, errors.New("email is required")
+	}
+	// Confirm the grantee exists now so the agent gets immediate feedback rather
+	// than a failure surfacing only after an operator approves it.
+	if _, err := h.st.GetGrantee(ctx, grantee); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil, fmt.Errorf("grantee_not_found: %s", grantee)
+		}
+		return nil, nil, err
+	}
+	args, err := json.Marshal(actions.AuthorizeGranteeEmailArgs{GranteeID: grantee, Email: email})
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := actionMetadata(in.SignalNumber)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := h.st.EnqueueAction(ctx, actions.ActionAuthorizeGranteeEmail, args, meta, in.RequestedBy)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, &EnqueueResult{ApprovalID: id, Action: actions.ActionAuthorizeGranteeEmail, Status: store.ApprovalPending}, nil
 }
 
 // actionMetadata builds the approval_actions.metadata JSON for an enqueued
