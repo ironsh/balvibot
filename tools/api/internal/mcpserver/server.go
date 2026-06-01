@@ -63,6 +63,7 @@ func Run(ctx context.Context, cfg Config, st *store.Store, drv DriveLookup, logg
 	}
 
 	mcpSrv := buildServer(st, drv)
+	mcpSrv.AddReceivingMiddleware(logToolCalls(logger))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return mcpSrv
@@ -120,6 +121,38 @@ func bearerAuth(token string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// maxLoggedArgsLen bounds how much of an incoming tool call's raw arguments we
+// write to the log, so a large body (e.g. a doc id list) can't blow up a line.
+const maxLoggedArgsLen = 256
+
+// logToolCalls is a receiving middleware that logs every incoming tools/call
+// with the tool name and its truncated raw arguments. Other MCP methods
+// (initialize, tools/list, ...) pass through unlogged.
+func logToolCalls(logger *slog.Logger) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if call, ok := req.(*mcp.CallToolRequest); ok && call.Params != nil {
+				logger.Info("mcp tool call",
+					"tool", call.Params.Name,
+					"args", truncateArgs(call.Params.Arguments))
+			}
+			return next(ctx, method, req)
+		}
+	}
+}
+
+// truncateArgs renders raw JSON arguments as a single-line string capped at
+// maxLoggedArgsLen, appending an ellipsis when the value is clipped.
+func truncateArgs(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	if len(raw) > maxLoggedArgsLen {
+		return string(raw[:maxLoggedArgsLen]) + "…"
+	}
+	return string(raw)
 }
 
 // BuildServer is exported so tests can attach the MCP server to an
