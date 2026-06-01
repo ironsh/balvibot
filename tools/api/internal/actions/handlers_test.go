@@ -73,3 +73,36 @@ func TestWhitelistDocExecutor(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, srcs, 2)
 }
+
+// TestAuthorizeGranteeEmailExecutor exercises the post-approval handler: it
+// requires the grantee to exist and maps the (lower-cased) sender email to it so
+// the mail indexer's resolver can tag that sender's messages.
+func TestAuthorizeGranteeEmailExecutor(t *testing.T) {
+	st, ctx := openTestStore(t)
+	require.NoError(t, st.EnsureGrantee(ctx, store.Grantee{GranteeID: "acme", Status: store.StatusActive}))
+
+	reg := approval.NewRegistry()
+	actions.Register(reg, st)
+
+	dispatch := func(a actions.AuthorizeGranteeEmailArgs) error {
+		raw, err := json.Marshal(a)
+		require.NoError(t, err)
+		return reg.Dispatch(ctx, actions.ActionAuthorizeGranteeEmail, raw)
+	}
+
+	// The email is mapped to the grantee and resolves case-insensitively.
+	require.NoError(t, dispatch(actions.AuthorizeGranteeEmailArgs{GranteeID: "acme", Email: "Sender@Acme.org"}))
+	id, ok, err := st.LookupGranteeByEmail(ctx, "sender@acme.org")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "acme", id)
+
+	// An unknown grantee is rejected before any mapping is written.
+	require.Error(t, dispatch(actions.AuthorizeGranteeEmailArgs{GranteeID: "ghost", Email: "x@ghost.org"}))
+	_, ok, err = st.LookupGranteeByEmail(ctx, "x@ghost.org")
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// A blank email is rejected.
+	require.Error(t, dispatch(actions.AuthorizeGranteeEmailArgs{GranteeID: "acme", Email: "  "}))
+}
