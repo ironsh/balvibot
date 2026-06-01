@@ -478,7 +478,6 @@ func newSyncGdocsCmd() *cobra.Command {
 			logger := setupLogger(cfg.LogLevel)
 			logger.Info("starting gdocs sync",
 				"poll_interval", cfg.PollInterval.String(),
-				"iron_proxy_url", cfg.IronProxyURL,
 			)
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -491,11 +490,7 @@ func newSyncGdocsCmd() *cobra.Command {
 			defer pool.Close()
 			st := store.New(pool)
 
-			d, err := drive.New(drive.Config{
-				BaseURL:     cfg.DriveBaseURL,
-				BrokerToken: cfg.BrokerToken,
-				CAFile:      cfg.CAFile,
-			})
+			d, err := newDriveClient(ctx, cfg)
 			if err != nil {
 				return err
 			}

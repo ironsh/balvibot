@@ -1,4 +1,4 @@
-{{- $ip := .Values.ironProxy -}}
+{{- $da := .Values.api.driveAuth -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,30 +14,7 @@ spec:
     metadata:
       labels:
         {{- include "philos.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 8 }}
-      annotations:
-        # Roll the pod when iron-proxy egress wiring changes (CA cert is
-        # intentionally not in this hash so rotating it requires an explicit
-        # `kubectl rollout restart`).
-        checksum/iron-proxy: {{ toYaml $ip | sha256sum }}
     spec:
-      {{- if $ip.enabled }}
-      # Egress to *.googleapis.com goes through iron-proxy: its DNS server
-      # returns its own ClusterIP for every non-passthrough lookup, and the
-      # NetworkPolicy denies every other egress path except postgres. The
-      # indexer holds no Google credentials of its own; iron-proxy swaps the
-      # placeholder Bearer token for a fresh service-account access token.
-      dnsPolicy: None
-      dnsConfig:
-        nameservers:
-          - {{ $ip.clusterIP | quote }}
-        searches:
-          - {{ printf "%s.svc.cluster.local" .Release.Namespace | quote }}
-          - "svc.cluster.local"
-          - "cluster.local"
-        options:
-          - name: ndots
-            value: "1"
-      {{- end }}
       containers:
         - name: gdocs-indexer
           image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
@@ -48,40 +25,24 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
-            {{- if $ip.enabled }}
-            - name: IRON_PROXY_URL
-              value: {{ printf "https://%s" $ip.clusterIP | quote }}
-            - name: IRON_PROXY_CA_FILE
-              value: /etc/ssl/iron-proxy/ca.crt
-            # The indexer sends `Authorization: Bearer iron-proxy-stub-token`
-            # on every Drive call; iron-proxy's gcp_auth transform swaps it for
-            # a real SA token at the wire. Default matches; override only if
-            # iron-proxy is configured with a non-default stub.
-            {{- with .Values.gdocsIndexer.brokerToken }}
-            - name: GDOCS_BROKER_TOKEN
-              value: {{ . | quote }}
-            {{- end }}
-            {{- end }}
+            # The indexer talks to Google Drive directly with the
+            # service-account credential (no iron-proxy).
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: {{ printf "/etc/philos/gcp-sa/%s" $da.secretKey | quote }}
           envFrom:
             # DATABASE_URL.
             - secretRef:
                 name: api-secrets
-          {{- if $ip.enabled }}
           volumeMounts:
-            - name: iron-proxy-ca
-              mountPath: /etc/ssl/iron-proxy/ca.crt
-              subPath: ca.crt
+            - name: gcp-sa
+              mountPath: /etc/philos/gcp-sa
               readOnly: true
-          {{- end }}
           resources:
             {{- toYaml .Values.gdocsIndexer.resources | nindent 12 }}
-      {{- if $ip.enabled }}
       volumes:
-        - name: iron-proxy-ca
+        - name: gcp-sa
           secret:
-            secretName: iron-proxy-ca
-            # CA cert only — never mount ca.key into the indexer container.
+            secretName: {{ $da.secretName | quote }}
             items:
-              - key: ca.crt
-                path: ca.crt
-      {{- end }}
+              - key: {{ $da.secretKey | quote }}
+                path: {{ $da.secretKey | quote }}

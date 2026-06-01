@@ -16,11 +16,6 @@ const (
 	DefaultPollInterval     = 5 * time.Minute
 	DefaultMCPBindAddr      = ":8080"
 	DefaultApprovalBindAddr = ":8090"
-	// DefaultBrokerToken is the literal placeholder iron-proxy's gcp_auth
-	// transform expects in the Authorization header. iron-proxy swaps it for
-	// a real service-account access token at the wire.
-	DefaultBrokerToken = "iron-proxy-stub-token"
-	DefaultCAFile      = "/etc/ssl/iron-proxy/ca.crt"
 )
 
 type Config struct {
@@ -31,9 +26,10 @@ type Config struct {
 	// MCP server (serve).
 	MCPBindAddr    string
 	MCPBearerToken string
-	// GoogleSAKeyFile is the path to a Google service-account JSON key. When
-	// set, the MCP server talks to Drive directly (whitelist_doc's folder-vs-doc
-	// classification); empty disables whitelist_doc.
+
+	// GoogleSAKeyFile is the path to a Google service-account JSON key, used by
+	// every workload that talks to Drive directly (the MCP server's
+	// whitelist_doc classification and the gdocs indexer).
 	GoogleSAKeyFile string
 
 	// Approval service (approve-serve).
@@ -54,9 +50,6 @@ type Config struct {
 
 	// Gdocs sync (sync-gdocs).
 	PollInterval time.Duration
-	IronProxyURL string
-	BrokerToken  string
-	CAFile       string
 	// DriveBaseURL lets tests / local smoke runs point at a fake Drive.
 	DriveBaseURL string
 }
@@ -81,9 +74,6 @@ func FromEnv() (*Config, error) {
 		IMAPTLS:        getenvDefault("IMAP_TLS", "starttls"),
 		AttachmentsDir: os.Getenv("MAIL_ATTACHMENTS_DIR"),
 
-		IronProxyURL: os.Getenv("IRON_PROXY_URL"),
-		BrokerToken:  getenvDefault("GDOCS_BROKER_TOKEN", DefaultBrokerToken),
-		CAFile:       getenvDefault("IRON_PROXY_CA_FILE", DefaultCAFile),
 		DriveBaseURL: os.Getenv("GDOCS_DRIVE_BASE_URL"),
 	}
 
@@ -188,8 +178,8 @@ func (c *Config) RequireGdocs() error {
 	if err := c.RequireDB(); err != nil {
 		return err
 	}
-	if c.IronProxyURL == "" {
-		return fmt.Errorf("missing required env var: IRON_PROXY_URL")
+	if c.GoogleSAKeyFile == "" {
+		return fmt.Errorf("missing required env var: GOOGLE_APPLICATION_CREDENTIALS")
 	}
 	if c.PollInterval < time.Second {
 		return fmt.Errorf("GDOCS_POLL_INTERVAL too small: %s", c.PollInterval)

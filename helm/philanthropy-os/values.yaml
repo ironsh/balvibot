@@ -47,10 +47,11 @@ api:
   env:
     MCP_BIND_ADDR: ":8080"
     LOG_LEVEL: "info"
-  # Direct Google Drive access for whitelist_doc (folder-vs-doc classification).
-  # The MCP server is a trusted backend, so it holds the service-account key and
-  # calls Drive directly — no iron-proxy. Reuses the same SA-key Secret the
-  # iron-proxy gcp_auth transform uses.
+  # Google Drive service-account credential, shared by the workloads that talk
+  # to Drive directly: the MCP server (whitelist_doc's folder-vs-doc
+  # classification) and the gdocs indexer. They are trusted backends, so they
+  # hold the key and call Drive directly — no iron-proxy. The Secret is
+  # provisioned by `just bootstrap-secrets` from PHILOS_GCP_SA_KEY_FILE.
   driveAuth:
     secretName: gdrive-sa
     secretKey: key.json
@@ -112,10 +113,6 @@ gdocsIndexer:
   env:
     GDOCS_POLL_INTERVAL: "5m"
     LOG_LEVEL: "info"
-  # Override GDOCS_BROKER_TOKEN here only if iron-proxy's gcp_auth transform is
-  # configured with a non-default stub. Empty (default) means the indexer falls
-  # back to the upstream default `iron-proxy-stub-token`.
-  brokerToken: ""
   resources:
     requests:
       cpu: "100m"
@@ -157,11 +154,6 @@ ironProxy:
     # work; allowing only one stalls at the download step.
     - "pypi.org"
     - "files.pythonhosted.org"
-    # Google Drive v3 + Docs APIs for gdocs-indexer egress. The indexer
-    # sends the placeholder broker token; iron-proxy mints + substitutes a
-    # real service-account access token at the wire.
-    - "www.googleapis.com"
-    - "docs.googleapis.com"
   # Static placeholders hermes sends as its API key; iron-proxy matches them
   # in the authorization / x-api-key headers and substitutes the real value
   # from iron-proxy-secrets at the wire. Safe to commit: they grant nothing
@@ -169,20 +161,6 @@ ironProxy:
   proxyTokens:
     anthropic: "ironproxy-anthropic-placeholder"
     openai: "ironproxy-openai-placeholder"
-  # GCP service-account auth (gcp_auth transform) for gdocs-indexer's
-  # Google Drive egress. iron-proxy mounts the SA keyfile from the
-  # `gdrive-sa` Secret (provisioned by `just bootstrap-secrets`
-  # from PHILOS_GCP_SA_KEY_FILE), mints OAuth access tokens against the
-  # scopes below, and swaps `iron-proxy-stub-token` on outbound requests
-  # to the matched hosts. The indexer holds no Google credentials.
-  # See https://docs.iron.sh/credential-proxying/gcp-auth.
-  gcpAuth:
-    enabled: true
-    scopes:
-      - "https://www.googleapis.com/auth/drive.readonly"
-      - "https://www.googleapis.com/auth/documents.readonly"
-    hosts:
-      - "*.googleapis.com"
   resources:
     requests:
       cpu: "50m"
