@@ -153,12 +153,14 @@ func newApproveCmd(g *globals) *cobra.Command {
 			// Ask the server which key fingerprint this operator must sign with,
 			// so we can auto-select the matching ssh-agent key. Best-effort: an
 			// older server or unregistered email leaves wantFP empty and we fall
-			// back to heuristics.
+			// back to heuristics, but warn so the failure is diagnosable.
 			var wantFP string
 			var who struct {
 				Fingerprint string `json:"fingerprint"`
 			}
-			if err := getJSON(cmd.Context(), g.server+"/approval-users/"+url.PathEscape(g.email), &who); err == nil {
+			if err := getJSON(cmd.Context(), g.server+"/approval-users/"+url.PathEscape(g.email), &who); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not look up your authorized key (%v); falling back to key heuristics\n", err)
+			} else {
 				wantFP = who.Fingerprint
 			}
 

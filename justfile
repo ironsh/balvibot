@@ -33,7 +33,8 @@ default:
 
 # One-shot bring-up: bootstrap secrets + iron-proxy CA, build & ship images
 # to the remote k3s node, and install the helm chart. Requires PHILOS_K3S_NODE
-# plus all the PHILOS_* secret env vars (see `bootstrap-secrets`).
+# plus all the PHILOS_* secret env vars (see `bootstrap-secrets`). Set
+# PHILOS_FORCE_SHIP=1 to re-upload every image even if the node already has it.
 up: bootstrap-secrets bootstrap-iron-proxy-ca ship-protonmail-bridge ship-api ship-signal-cli ship-hermes-skills ship-hermes-agent deploy
 
 # Install/upgrade the helm release. Grantees are managed via the `api grantee`
@@ -58,24 +59,40 @@ _build image dockerfile *args:
         .
 
 # Stream a locally built image over SSH to $PHILOS_K3S_NODE and import it into
-# the node's k3s containerd image store.
+# the node's k3s containerd image store. After import, stamp the local docker
+# image ID onto the image as a `balvi.image-id` label so `_ship` can later tell,
+# from the node's own store, whether it already holds this exact build.
 [private]
 _upload image:
-    @[ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }
-    docker save {{image}} | ssh "$PHILOS_K3S_NODE" 'sudo k3s ctr images import -'
+    @set -eu; \
+        [ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }; \
+        local_id=$(docker image inspect --format '{{{{.Id}}' "{{image}}"); \
+        docker save "{{image}}" | ssh "$PHILOS_K3S_NODE" 'sudo k3s ctr images import -'; \
+        ssh "$PHILOS_K3S_NODE" "sudo k3s ctr images label '{{image}}' balvi.image-id='$local_id'" >/dev/null
 
-# Build via the named recipe and only upload to the k3s node if the resulting
-# image ID actually changed. Lets `up` be a cheap no-op when nothing rebuilds.
+# Build via the named recipe, then upload to the k3s node only if the node's
+# containerd store does not already hold this exact image, matched by the
+# balvi.image-id label _upload stamps on import. This consults the remote truth
+# rather than the local docker cache, so a node that is missing the image (fresh
+# node, pruned store) still gets it even when the local build is unchanged. Set
+# PHILOS_FORCE_SHIP=1 to skip the check and always upload.
 [private]
 _ship image build_recipe:
     @set -eu; \
-        prev=$(docker images -q "{{image}}" 2>/dev/null || true); \
         just {{build_recipe}}; \
-        curr=$(docker images -q "{{image}}" 2>/dev/null || true); \
-        if [ -n "$prev" ] && [ "$prev" = "$curr" ]; then \
-            echo "{{image}} unchanged ($curr); skipping upload"; \
-        else \
+        if [ -n "${PHILOS_FORCE_SHIP:-}" ]; then \
+            echo "PHILOS_FORCE_SHIP set; forcing upload of {{image}}"; \
             just _upload "{{image}}"; \
+        else \
+            [ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }; \
+            local_id=$(docker image inspect --format '{{{{.Id}}' "{{image}}"); \
+            filter="name==\"{{image}}\",labels.\"balvi.image-id\"==\"$local_id\""; \
+            match=$(ssh "$PHILOS_K3S_NODE" "sudo k3s ctr images ls '$filter' -q" 2>/dev/null || true); \
+            if [ -n "$match" ]; then \
+                echo "{{image}} already on k3s node ($local_id); skipping upload"; \
+            else \
+                just _upload "{{image}}"; \
+            fi; \
         fi
 
 # Build the protonmail-bridge image locally from docker/protonmail-bridge.
