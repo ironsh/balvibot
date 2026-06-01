@@ -50,10 +50,8 @@ api:
   # Direct Google Drive access for whitelist_doc (folder-vs-doc classification).
   # The MCP server is a trusted backend, so it holds the service-account key and
   # calls Drive directly — no iron-proxy. Reuses the same SA-key Secret the
-  # iron-proxy gcp_auth transform uses. Set enabled: false to disable
-  # whitelist_doc (the tool then returns an error).
+  # iron-proxy gcp_auth transform uses.
   driveAuth:
-    enabled: true
     secretName: gdrive-sa
     secretKey: key.json
   resources:
