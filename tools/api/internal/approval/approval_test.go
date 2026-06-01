@@ -36,6 +36,23 @@ func TestSignVerifyRoundTrip(t *testing.T) {
 	require.NoError(t, approval.Verify(pubLine, payload, b64))
 }
 
+// TestSigningPayloadWhitespaceIndependent guards the bug where the server signs
+// over the spaced form Postgres stores JSONB as (e.g. `{"a": 1}`) while the
+// client reconstructs the compacted form Go's json encoder sends over HTTP
+// (`{"a":1}`). Both must yield the same payload bytes.
+func TestSigningPayloadWhitespaceIndependent(t *testing.T) {
+	spaced := approval.SigningPayload(7, "send_email", json.RawMessage(`{"to": "a@b.com", "n": 1}`))
+	compact := approval.SigningPayload(7, "send_email", json.RawMessage(`{"to":"a@b.com","n":1}`))
+	require.Equal(t, spaced, compact)
+
+	// And an approval signed over the spaced form verifies against a payload
+	// rebuilt from the compacted form, mirroring the server/client split.
+	signer, pubLine := newKey(t)
+	sig, err := signer.Sign(rand.Reader, spaced)
+	require.NoError(t, err)
+	require.NoError(t, approval.Verify(pubLine, compact, approval.MarshalSignature(sig)))
+}
+
 func TestVerifyRejectsTamperedPayload(t *testing.T) {
 	signer, pubLine := newKey(t)
 	payload := approval.SigningPayload(42, "send_email", json.RawMessage(`{"to":"a@b.com"}`))
