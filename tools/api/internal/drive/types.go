@@ -9,13 +9,12 @@ const (
 // names match the Drive API. Drive returns RFC 3339 timestamps as strings;
 // we keep them as strings here and parse downstream.
 type File struct {
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	MimeType         string  `json:"mimeType"`
-	ModifiedTime     string  `json:"modifiedTime,omitempty"`
-	SharedWithMeTime string  `json:"sharedWithMeTime,omitempty"`
-	Owners           []Owner `json:"owners,omitempty"`
-	Trashed          bool    `json:"trashed,omitempty"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	MimeType     string  `json:"mimeType"`
+	ModifiedTime string  `json:"modifiedTime,omitempty"`
+	Owners       []Owner `json:"owners,omitempty"`
+	Trashed      bool    `json:"trashed,omitempty"`
 }
 
 type Owner struct {

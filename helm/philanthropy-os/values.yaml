@@ -47,6 +47,15 @@ api:
   env:
     MCP_BIND_ADDR: ":8080"
     LOG_LEVEL: "info"
+  # Direct Google Drive access for whitelist_doc (folder-vs-doc classification).
+  # The MCP server is a trusted backend, so it holds the service-account key and
+  # calls Drive directly — no iron-proxy. Reuses the same SA-key Secret the
+  # iron-proxy gcp_auth transform uses. Set enabled: false to disable
+  # whitelist_doc (the tool then returns an error).
+  driveAuth:
+    enabled: true
+    secretName: gdrive-sa
+    secretKey: key.json
   resources:
     requests:
       cpu: "100m"
@@ -164,7 +173,7 @@ ironProxy:
     openai: "ironproxy-openai-placeholder"
   # GCP service-account auth (gcp_auth transform) for gdocs-indexer's
   # Google Drive egress. iron-proxy mounts the SA keyfile from the
-  # `iron-proxy-gcp-sa` Secret (provisioned by `just bootstrap-secrets`
+  # `gdrive-sa` Secret (provisioned by `just bootstrap-secrets`
   # from PHILOS_GCP_SA_KEY_FILE), mints OAuth access tokens against the
   # scopes below, and swaps `iron-proxy-stub-token` on outbound requests
   # to the matched hosts. The indexer holds no Google credentials.

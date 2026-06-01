@@ -28,8 +28,7 @@ func openTestStore(t *testing.T) (*store.Store, context.Context) {
 	_, err = pool.ExecContext(ctx, `
 		TRUNCATE grantees, grantee_emails, grantee_sources,
 		         threads, messages, message_references, message_recipients,
-		         attachments, mailbox_state, docs, unregistered_docs,
-		         blocked_owners, sync_state,
+		         attachments, mailbox_state, docs, sync_state,
 		         approval_actions, approval_users RESTART IDENTITY CASCADE
 	`)
 	require.NoError(t, err)

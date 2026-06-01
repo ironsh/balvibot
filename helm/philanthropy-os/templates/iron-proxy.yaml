@@ -222,9 +222,10 @@ spec:
         {{- if $ip.gcpAuth.enabled }}
         - name: gcp-sa
           secret:
-            # key.json holds the service-account JSON keyfile. Only the
-            # iron-proxy pod reads this — gdocs-indexer never sees it.
-            secretName: iron-proxy-gcp-sa
+            # key.json holds the service-account JSON keyfile. iron-proxy reads
+            # it to mint tokens for gdocs-indexer (which never sees it); the api
+            # server reads the same Secret to call Drive directly.
+            secretName: gdrive-sa
             items:
               - key: key.json
                 path: key.json

@@ -290,24 +290,6 @@ func (s *Store) ListSourcesForGrantee(ctx context.Context, granteeID string) ([]
 	return out, rows.Err()
 }
 
-// AllSourceDriveIDs returns every drive_id currently registered as a source.
-func (s *Store) AllSourceDriveIDs(ctx context.Context) (map[string]bool, error) {
-	rows, err := s.query(ctx, `SELECT drive_id FROM grantee_sources`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]bool{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out[id] = true
-	}
-	return out, rows.Err()
-}
-
 // ---------- mailbox state ----------
 
 func (s *Store) GetMailboxState(ctx context.Context, folder string) (*MailboxState, error) {
@@ -710,39 +692,6 @@ func (s *Store) ListDocsForGrantee(ctx context.Context, granteeID string, limit 
 		out = out[:limit]
 	}
 	return out, next, nil
-}
-
-// ---------- unregistered ----------
-
-// UpsertUnregisteredDoc inserts a new row at status='pending' on first sight,
-// or updates last_seen / title / mime_type / owner_email on later sights.
-// Status is NEVER overwritten (human reviewers own it).
-func (s *Store) UpsertUnregisteredDoc(ctx context.Context, u UnregisteredDoc) error {
-	if u.DocID == "" {
-		return errors.New("doc_id required")
-	}
-	now := time.Now().Unix()
-	first := u.FirstSeen.Unix()
-	if u.FirstSeen.IsZero() {
-		first = now
-	}
-	last := u.LastSeen.Unix()
-	if u.LastSeen.IsZero() {
-		last = now
-	}
-	if u.Status == "" {
-		u.Status = UnregisteredPending
-	}
-	_, err := s.exec(ctx, `
-		INSERT INTO unregistered_docs(doc_id, owner_email, title, mime_type, first_seen, last_seen, status)
-		VALUES(?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(doc_id) DO UPDATE SET
-		  owner_email = excluded.owner_email,
-		  title = excluded.title,
-		  mime_type = excluded.mime_type,
-		  last_seen = excluded.last_seen
-	`, u.DocID, nullStr(u.OwnerEmail), nullStr(u.Title), nullStr(u.MimeType), first, last, u.Status)
-	return err
 }
 
 // ---------- sync_state ----------

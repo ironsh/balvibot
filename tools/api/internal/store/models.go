@@ -13,11 +13,6 @@ const (
 	SourceTypeFolder = "folder"
 	SourceTypeDoc    = "doc"
 
-	UnregisteredPending    = "pending"
-	UnregisteredIgnored    = "ignored"
-	UnregisteredBlocked    = "blocked"
-	UnregisteredRegistered = "registered"
-
 	// UnassignedGrantee is the sentinel id used by the mail query API to
 	// select messages/threads whose grantee_id is NULL.
 	UnassignedGrantee = "_unassigned"
@@ -169,14 +164,4 @@ type DocSummary struct {
 	HadImages   bool      `json:"had_images"`
 	HadComments bool      `json:"had_comments"`
 	Status      string    `json:"status"`
-}
-
-type UnregisteredDoc struct {
-	DocID      string    `json:"doc_id"`
-	OwnerEmail string    `json:"owner_email,omitempty"`
-	Title      string    `json:"title,omitempty"`
-	MimeType   string    `json:"mime_type,omitempty"`
-	FirstSeen  time.Time `json:"first_seen"`
-	LastSeen   time.Time `json:"last_seen"`
-	Status     string    `json:"status"`
 }

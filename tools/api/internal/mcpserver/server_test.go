@@ -14,8 +14,27 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ironsh/balvibot/tools/api/internal/db"
+	"github.com/ironsh/balvibot/tools/api/internal/drive"
 	"github.com/ironsh/balvibot/tools/api/internal/store"
 )
+
+// fakeDrive maps a Drive id to the MIME type GetFile should report. Unknown ids
+// return a 404, mirroring the real client.
+type fakeDrive map[string]string
+
+func (f fakeDrive) GetFile(_ context.Context, fileID, _ string) (*drive.File, error) {
+	if mt, ok := f[fileID]; ok {
+		return &drive.File{ID: fileID, MimeType: mt}, nil
+	}
+	return nil, &drive.StatusError{Status: http.StatusNotFound, URL: fileID}
+}
+
+// testDrive is the fixed Drive fixture used by the MCP test server.
+var testDrive = fakeDrive{
+	"folder-x": drive.MimeFolder,
+	"doc-x":    drive.MimeDoc,
+	"sheet-x":  "application/vnd.google-apps.spreadsheet",
+}
 
 // newTestStore connects to DATABASE_URL, migrates, truncates, and seeds two
 // grantees (with an email + a doc each) plus one mail message. Skipped when
@@ -33,8 +52,8 @@ func newTestStore(t *testing.T) *store.Store {
 	_, err = pool.ExecContext(ctx, `
 		TRUNCATE grantees, grantee_emails, grantee_sources,
 		         threads, messages, message_references, message_recipients,
-		         attachments, mailbox_state, docs, unregistered_docs,
-		         blocked_owners, sync_state RESTART IDENTITY CASCADE
+		         attachments, mailbox_state, docs, sync_state,
+		         approval_actions, approval_users RESTART IDENTITY CASCADE
 	`)
 	require.NoError(t, err)
 	st := store.New(pool)
@@ -75,7 +94,7 @@ func newTestStore(t *testing.T) *store.Store {
 func startTestServer(t *testing.T, st *store.Store) (endpoint, token string) {
 	t.Helper()
 	token = "test-token"
-	srv := buildServer(st)
+	srv := buildServer(st, testDrive)
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", streamHandler)
@@ -216,6 +235,40 @@ func TestListDocumentsForGrantee(t *testing.T) {
 	require.Len(t, out.Documents, 1)
 	require.Equal(t, "doc-acme-1", out.Documents[0].DocID)
 	require.True(t, out.Documents[0].HadImages)
+}
+
+// TestWhitelistDocResolvesType drives the enqueue-time path: the tool looks up
+// the Drive id, classifies it, and queues a pending action. A folder and a doc
+// id both succeed (with the type resolved); a non-doc/folder MIME and a
+// nonexistent grantee are rejected before anything is queued.
+func TestWhitelistDocResolvesType(t *testing.T) {
+	st := newTestStore(t)
+	endpoint, token := startTestServer(t, st)
+	sess := newClientSession(t, endpoint, token)
+
+	folder := callTool[EnqueueResult](t, sess, "whitelist_doc", map[string]any{
+		"grantee_id": "acme", "drive_id": "folder-x",
+	})
+	require.Equal(t, "whitelist_doc", folder.Action)
+	require.Equal(t, store.ApprovalPending, folder.Status)
+	require.NotZero(t, folder.ApprovalID)
+
+	doc := callTool[EnqueueResult](t, sess, "whitelist_doc", map[string]any{
+		"grantee_id": "acme", "drive_id": "doc-x",
+	})
+	require.NotEqual(t, folder.ApprovalID, doc.ApprovalID)
+
+	// A spreadsheet (neither folder nor Google Doc) is refused.
+	msg := callToolExpectError(t, sess, "whitelist_doc", map[string]any{
+		"grantee_id": "acme", "drive_id": "sheet-x",
+	})
+	require.Contains(t, msg, "only Google Docs and folders")
+
+	// An unknown grantee is refused before the Drive lookup.
+	msg = callToolExpectError(t, sess, "whitelist_doc", map[string]any{
+		"grantee_id": "ghost", "drive_id": "doc-x",
+	})
+	require.Contains(t, msg, "grantee_not_found")
 }
 
 func TestGetDocumentCrossGranteeRefused(t *testing.T) {

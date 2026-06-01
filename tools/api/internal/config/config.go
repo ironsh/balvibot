@@ -31,6 +31,10 @@ type Config struct {
 	// MCP server (serve).
 	MCPBindAddr    string
 	MCPBearerToken string
+	// GoogleSAKeyFile is the path to a Google service-account JSON key. When
+	// set, the MCP server talks to Drive directly (whitelist_doc's folder-vs-doc
+	// classification); empty disables whitelist_doc.
+	GoogleSAKeyFile string
 
 	// Approval service (approve-serve).
 	ApprovalBindAddr string
@@ -61,9 +65,10 @@ type Config struct {
 // requirements; call the Require* method matching the subcommand.
 func FromEnv() (*Config, error) {
 	c := &Config{
-		DatabaseURL:    os.Getenv("DATABASE_URL"),
-		MCPBindAddr:    getenvDefault("MCP_BIND_ADDR", DefaultMCPBindAddr),
-		MCPBearerToken: os.Getenv("MCP_BEARER_TOKEN"),
+		DatabaseURL:     os.Getenv("DATABASE_URL"),
+		MCPBindAddr:     getenvDefault("MCP_BIND_ADDR", DefaultMCPBindAddr),
+		MCPBearerToken:  os.Getenv("MCP_BEARER_TOKEN"),
+		GoogleSAKeyFile: strings.TrimSpace(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")),
 
 		ApprovalBindAddr: getenvDefault("APPROVAL_BIND_ADDR", DefaultApprovalBindAddr),
 

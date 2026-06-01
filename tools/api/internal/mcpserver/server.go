@@ -1,10 +1,9 @@
 // Package mcpserver exposes the unified corpus (grantees, mail, docs) over a
-// single Streamable HTTP MCP endpoint. The corpus tools are read-only
-// (grantee/source administration is the CLI's job), and no tool reads
-// unregistered_docs or blocked_owners. The one mutating tool, enqueue_action,
-// does not touch the corpus: it queues a side-effecting action into
-// approval_actions for out-of-band human approval (executed later by the
-// separate approval service), so the agent never acts without sign-off.
+// single Streamable HTTP MCP endpoint. The corpus read tools are read-only.
+// The mutating tools never touch the corpus directly: they queue a
+// side-effecting action into approval_actions for out-of-band human approval
+// (executed later by the separate approval service), so the agent never acts
+// without sign-off.
 package mcpserver
 
 import (
@@ -22,8 +21,16 @@ import (
 
 	"github.com/ironsh/balvibot/tools/api/internal/actions"
 	"github.com/ironsh/balvibot/tools/api/internal/approval"
+	"github.com/ironsh/balvibot/tools/api/internal/drive"
 	"github.com/ironsh/balvibot/tools/api/internal/store"
 )
+
+// DriveLookup is the slice of the Drive client the whitelist_doc tool needs: a
+// single metadata fetch used to classify an id as a folder or a doc at enqueue
+// time. It may be nil, in which case whitelist_doc returns an error.
+type DriveLookup interface {
+	GetFile(ctx context.Context, fileID, fields string) (*drive.File, error)
+}
 
 const (
 	serverName    = "philos-api"
@@ -38,7 +45,7 @@ const serverInstructions = `This server exposes a read-only corpus (grantees, ma
 
 Read tools (list_grantees, list/get/search emails and threads, list/get documents) return data directly.
 
-Mutating tools (add_grantee, add_approval_user) do NOT take effect immediately. Each one queues the action for human approval and returns an approval_id (with status "pending"). The change is applied only after an operator approves that approval_id out-of-band using the balvi-approve CLI, which signs the request with their SSH key. When you call a mutating tool, report the returned approval_id back to the user and tell them it must be approved via balvi-approve before it takes effect; do not assume the action has been performed.`
+Mutating tools (add_grantee, add_approval_user, whitelist_doc) do NOT take effect immediately. Each one queues the action for human approval and returns an approval_id (with status "pending"). The change is applied only after an operator approves that approval_id out-of-band using the balvi-approve CLI, which signs the request with their SSH key. When you call a mutating tool, report the returned approval_id back to the user and tell them it must be approved via balvi-approve before it takes effect; do not assume the action has been performed.`
 
 type Config struct {
 	BindAddr    string
@@ -47,7 +54,7 @@ type Config struct {
 
 // Run starts the MCP server and blocks until ctx is cancelled or the listener
 // returns an error. It shuts the HTTP server down gracefully on ctx.Done.
-func Run(ctx context.Context, cfg Config, st *store.Store, logger *slog.Logger) error {
+func Run(ctx context.Context, cfg Config, st *store.Store, drv DriveLookup, logger *slog.Logger) error {
 	if cfg.BearerToken == "" {
 		return errors.New("mcp bearer token is required")
 	}
@@ -55,7 +62,7 @@ func Run(ctx context.Context, cfg Config, st *store.Store, logger *slog.Logger) 
 		return errors.New("mcp bind address is required")
 	}
 
-	mcpSrv := buildServer(st)
+	mcpSrv := buildServer(st, drv)
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return mcpSrv
@@ -117,17 +124,17 @@ func bearerAuth(token string, next http.Handler) http.Handler {
 
 // BuildServer is exported so tests can attach the MCP server to an
 // httptest.Server without bringing up a real listener.
-func BuildServer(st *store.Store) *mcp.Server {
-	return buildServer(st)
+func BuildServer(st *store.Store, drv DriveLookup) *mcp.Server {
+	return buildServer(st, drv)
 }
 
-func buildServer(st *store.Store) *mcp.Server {
+func buildServer(st *store.Store, drv DriveLookup) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
 		Version: serverVersion,
 	}, &mcp.ServerOptions{Instructions: serverInstructions})
 
-	h := &handlers{st: st}
+	h := &handlers{st: st, drv: drv}
 
 	// ---- grantees ----
 	mcp.AddTool(s, &mcp.Tool{
@@ -173,6 +180,10 @@ func buildServer(st *store.Store) *mcp.Server {
 		Name:        "add_approval_user",
 		Description: "Request authorization of a new approval operator by email and SSH public key. This does NOT authorize the operator immediately: it queues the action for human approval and returns an approval_id. The operator can approve actions only after an existing operator approves this request.",
 	}, h.addApprovalUser)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "whitelist_doc",
+		Description: "Request that a Google Drive doc or folder be ingested (indexed) for an existing grantee. Pass the grantee_id and the Drive id; whether it is a folder or a single doc is detected automatically. This does NOT index it immediately: it queues the action for human approval and returns an approval_id. Indexing begins only after an operator approves it.",
+	}, h.whitelistDoc)
 
 	// ---- docs ----
 	mcp.AddTool(s, &mcp.Tool{
@@ -192,7 +203,8 @@ func buildServer(st *store.Store) *mcp.Server {
 }
 
 type handlers struct {
-	st *store.Store
+	st  *store.Store
+	drv DriveLookup
 }
 
 func parseTimeBound(s string) (*time.Time, error) {
@@ -258,6 +270,57 @@ func (h *handlers) addApprovalUser(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, nil, err
 	}
 	return nil, &EnqueueResult{ApprovalID: id, Action: actions.ActionAddApprovalUser, Status: store.ApprovalPending}, nil
+}
+
+func (h *handlers) whitelistDoc(ctx context.Context, _ *mcp.CallToolRequest, in *WhitelistDocInput) (*mcp.CallToolResult, *EnqueueResult, error) {
+	grantee := strings.TrimSpace(in.GranteeID)
+	if grantee == "" {
+		return nil, nil, errors.New("grantee_id is required")
+	}
+	driveID := strings.TrimSpace(in.DriveID)
+	if driveID == "" {
+		return nil, nil, errors.New("drive_id is required")
+	}
+	// Confirm the grantee exists now so the agent gets immediate feedback
+	// rather than a failure surfacing only after an operator approves it.
+	if _, err := h.st.GetGrantee(ctx, grantee); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil, fmt.Errorf("grantee_not_found: %s", grantee)
+		}
+		return nil, nil, err
+	}
+	// Classify the id as a folder or a doc from its Drive MIME type, so the
+	// executor (and the human approving it) see the resolved type. This is the
+	// only Drive call this server makes; it is read-only.
+	if h.drv == nil {
+		return nil, nil, errors.New("drive lookup is not configured on this server")
+	}
+	f, err := h.drv.GetFile(ctx, driveID, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("look up drive object %q: %w", driveID, err)
+	}
+	var srcType string
+	switch f.MimeType {
+	case drive.MimeFolder:
+		srcType = store.SourceTypeFolder
+	case drive.MimeDoc:
+		srcType = store.SourceTypeDoc
+	default:
+		return nil, nil, fmt.Errorf("drive object %q has mime %q; only Google Docs and folders can be whitelisted", driveID, f.MimeType)
+	}
+	args, err := json.Marshal(actions.WhitelistDocArgs{GranteeID: grantee, DriveID: driveID, SourceType: srcType})
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := actionMetadata(in.SignalNumber)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := h.st.EnqueueAction(ctx, actions.ActionWhitelistDoc, args, meta, in.RequestedBy)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, &EnqueueResult{ApprovalID: id, Action: actions.ActionWhitelistDoc, Status: store.ApprovalPending}, nil
 }
 
 // actionMetadata builds the approval_actions.metadata JSON for an enqueued

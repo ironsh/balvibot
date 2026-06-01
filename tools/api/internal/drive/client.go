@@ -1,10 +1,14 @@
-// Package drive is a tiny REST client over net/http for the three Google
-// Drive v3 endpoints the indexer needs: files.list, files.get, files.export.
+// Package drive is a tiny REST client over net/http for the Google Drive v3
+// endpoints we need: files.list, files.get, files.export.
 //
-// All requests carry a literal placeholder Bearer token (Config.BrokerToken).
-// We deliberately do NOT do OAuth — iron-proxy substitutes the placeholder
-// for a fresh service-account access token at the egress boundary. Treating
-// the token as opaque keeps the indexer free of Google credentials.
+// It authenticates one of two ways, depending on the caller:
+//   - TokenSource set: the caller holds a Google service-account credential and
+//     talks to Drive directly (the api/MCP server). Tokens are real and
+//     refreshed by the token source.
+//   - BrokerToken set: every request carries a literal placeholder Bearer token
+//     that iron-proxy swaps for a fresh SA token at the egress boundary (the
+//     indexer). No OAuth happens in-process, keeping that workload free of
+//     Google credentials.
 package drive
 
 import (
@@ -20,6 +24,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 // DefaultBaseURL is the public Drive v3 endpoint. Override with
@@ -52,8 +58,13 @@ type Config struct {
 	// BaseURL is the Drive v3 endpoint root. Defaults to DefaultBaseURL.
 	BaseURL string
 	// BrokerToken is the placeholder Bearer iron-proxy substitutes. We
-	// always send this verbatim; we never refresh it.
+	// always send this verbatim; we never refresh it. Ignored when
+	// TokenSource is set.
 	BrokerToken string
+	// TokenSource, if set, supplies real OAuth2 access tokens for direct
+	// Google API access. When set, the client authenticates with these tokens
+	// (refreshed by the source) and BrokerToken/CAFile are not used.
+	TokenSource oauth2.TokenSource
 	// CAFile, if set, is added to the TLS trust store (typically the
 	// iron-proxy CA so we trust the MITM cert on *.googleapis.com).
 	CAFile string
@@ -73,8 +84,8 @@ func New(cfg Config) (*Client, error) {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = DefaultBaseURL
 	}
-	if cfg.BrokerToken == "" {
-		return nil, errors.New("drive: BrokerToken is required")
+	if cfg.TokenSource == nil && cfg.BrokerToken == "" {
+		return nil, errors.New("drive: a TokenSource or BrokerToken is required")
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
@@ -124,12 +135,6 @@ func loadCAPool(path string) (*x509.CertPool, error) {
 func (c *Client) ListFolder(ctx context.Context, folderID, pageToken string) (*FileList, error) {
 	q := fmt.Sprintf("'%s' in parents and trashed = false", escape(folderID))
 	return c.list(ctx, q, pageToken)
-}
-
-// ListSharedWithMe pages through everything shared with the service account
-// that the indexer hasn't classified yet.
-func (c *Client) ListSharedWithMe(ctx context.Context, pageToken string) (*FileList, error) {
-	return c.list(ctx, "sharedWithMe = true and trashed = false", pageToken)
 }
 
 func (c *Client) list(ctx context.Context, q, pageToken string) (*FileList, error) {
@@ -193,9 +198,18 @@ func (c *Client) doRaw(ctx context.Context, method, endpoint string) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	// The literal placeholder. iron-proxy swaps this for a real SA token
-	// at the wire; we never see, store, or refresh the real one.
-	req.Header.Set("Authorization", "Bearer "+c.cfg.BrokerToken)
+	if c.cfg.TokenSource != nil {
+		// Direct access: a real, source-refreshed SA token.
+		tok, err := c.cfg.TokenSource.Token()
+		if err != nil {
+			return nil, fmt.Errorf("drive: get access token: %w", err)
+		}
+		tok.SetAuthHeader(req)
+	} else {
+		// The literal placeholder. iron-proxy swaps this for a real SA token
+		// at the wire; we never see, store, or refresh the real one.
+		req.Header.Set("Authorization", "Bearer "+c.cfg.BrokerToken)
+	}
 	req.Header.Set("Accept", "application/json, */*")
 
 	resp, err := c.http.Do(req)
