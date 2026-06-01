@@ -1,3 +1,32 @@
+{{/*
+Render a fully-qualified image ref for a locally-built image, prefixing the
+configurable .Values.imageRegistry when set. Call with a dict carrying the
+registry and the image block, e.g.
+  {{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}
+With imageRegistry empty (the committed default) this renders the bare
+`repo:tag` and the kubelet resolves it from the node's local containerd store,
+preserving the pre-registry behaviour. Set imageRegistry (e.g. to localhost:5000
+in values.local.yaml) to pull these images from the on-node registry instead.
+External/public images (postgres, busybox, iron-proxy) deliberately do not use
+this helper, so they keep pulling from their upstream registries.
+*/}}
+{{- define "philos.image" -}}
+{{- with .registry -}}{{ . }}/{{ end -}}{{ .image.repository }}:{{ .image.tag }}
+{{- end -}}
+
+{{/*
+imagePullPolicy for a locally-built image: the per-image override (image.pullPolicy)
+when set, otherwise the chart-wide .Values.imagePullPolicy default. Call as:
+  {{ include "philos.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
+Defaults to Always because locally-built images are pushed under fixed tags
+(e.g. api:0.1.0); IfNotPresent would leave the node serving a stale image of the
+same tag after a new push. Set imageRegistry's companion imagePullPolicy (or a
+per-image pullPolicy) in values.local.yaml to change it.
+*/}}
+{{- define "philos.imagePullPolicy" -}}
+{{- .image.pullPolicy | default .default -}}
+{{- end -}}
+
 {{- define "philos.labels" -}}
 app.kubernetes.io/name: {{ .name }}
 app.kubernetes.io/part-of: {{ .partOf }}

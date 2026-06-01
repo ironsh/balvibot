@@ -28,13 +28,26 @@ philos_release := "philanthropy-os"
 philos_chart := "helm/philanthropy-os"
 philos_values_local := "helm/philanthropy-os/values.local.yaml"
 
+# On-node OCI registry that locally-built images are pushed to and that k3s
+# pulls from. The registry listens only on the node's loopback; `_upload`
+# reaches it through an SSH tunnel (see `_tunnel`), so it is never exposed on
+# the LAN. The push target string (`registry_host:registry_port`) is also the
+# image ref the node resolves, so it must equal `imageRegistry` in
+# values.local.yaml.
+registry_host := env_var_or_default("PHILOS_REGISTRY_HOST", "localhost")
+registry_port := env_var_or_default("PHILOS_REGISTRY_PORT", "5000")
+registry := registry_host + ":" + registry_port
+
 default:
     @just --list
 
-# One-shot bring-up: bootstrap secrets + iron-proxy CA, build & ship images
-# to the remote k3s node, and install the helm chart. Requires PHILOS_K3S_NODE
-# plus all the PHILOS_* secret env vars (see `bootstrap-secrets`). Set
-# PHILOS_FORCE_SHIP=1 to re-upload every image even if the node already has it.
+# One-shot bring-up: bootstrap secrets + iron-proxy CA, build & push images to
+# the on-node registry, and install the helm chart. Requires PHILOS_K3S_NODE
+# plus all the PHILOS_* secret env vars (see `bootstrap-secrets`), and a registry
+# already provisioned on the node. Each push only ships layers the registry is
+# missing, so re-running after a small code change transfers little. Make sure
+# values.local.yaml sets
+# `imageRegistry: {{registry}}` so the cluster pulls what was pushed.
 up: bootstrap-secrets bootstrap-iron-proxy-ca ship-protonmail-bridge ship-api ship-signal-cli ship-hermes-skills ship-hermes-agent deploy
 
 # Install/upgrade the helm release. Grantees are managed via the `api grantee`
@@ -58,53 +71,50 @@ _build image dockerfile *args:
         -t {{image}} \
         .
 
-# Stream a locally built image over SSH to $PHILOS_K3S_NODE and import it into
-# the node's k3s containerd image store. After import, stamp the local docker
-# image ID onto the image as a `balvi.image-id` label so `_ship` can later tell,
-# from the node's own store, whether it already holds this exact build. The
-# image is labelled under its containerd ref: importing a hostless name like
-# `philanthropy-os/api:0.1.0` normalizes to `docker.io/philanthropy-os/api:0.1.0`
-# (the same ref the kubelet resolves to), so we target that. Labelling is
-# best-effort: a failure only costs a redundant upload next time.
+# Ensure an SSH tunnel from {{registry}} on this host to the registry on the
+# node's loopback is open, starting one in the background if not. We detect an
+# existing tunnel (or any listener) by probing the local port, so repeated
+# `_upload` calls within a run reuse a single tunnel. The forward targets
+# 127.0.0.1:{{registry_port}} on the node because that is where the registry
+# listens; it is never bound to a routable interface.
+[private]
+_tunnel:
+    @set -eu; \
+        [ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }; \
+        if nc -z {{registry_host}} {{registry_port}} >/dev/null 2>&1; then \
+            exit 0; \
+        fi; \
+        echo "opening registry tunnel {{registry}} -> $PHILOS_K3S_NODE (127.0.0.1:{{registry_port}})"; \
+        ssh -fNL {{registry_port}}:127.0.0.1:{{registry_port}} "$PHILOS_K3S_NODE"; \
+        for _ in $(seq 1 25); do nc -z {{registry_host}} {{registry_port}} >/dev/null 2>&1 && exit 0; sleep 0.2; done; \
+        echo "registry tunnel did not come up on {{registry}}" >&2; exit 1
+
+# Tag a locally built image under the registry prefix and push it through the
+# tunnel. The push is content-addressed: only layers the registry does not
+# already hold cross the wire, so an unchanged image is a cheap no-op and a
+# small code change ships just the top layer. k3s pulls the same ref from the
+# node-local registry (`imageRegistry` in values.local.yaml).
 [private]
 _upload image:
     @set -eu; \
-        [ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }; \
-        local_id=$(docker image inspect --format '{{{{.Id}}' "{{image}}"); \
-        docker save "{{image}}" | ssh "$PHILOS_K3S_NODE" 'sudo k3s ctr images import -'; \
-        ssh "$PHILOS_K3S_NODE" "sudo k3s ctr images label 'docker.io/{{image}}' balvi.image-id='$local_id'" >/dev/null \
-            || echo "warning: could not label docker.io/{{image}} on k3s node; it will be re-uploaded next time" >&2
+        just _tunnel; \
+        docker tag "{{image}}" "{{registry}}/{{image}}"; \
+        echo "pushing {{registry}}/{{image}}"; \
+        docker push "{{registry}}/{{image}}"
 
-# Build via the named recipe, then upload to the k3s node only if the node's
-# containerd store does not already hold this exact image, matched by the
-# balvi.image-id label _upload stamps on import. This consults the remote truth
-# rather than the local docker cache, so a node that is missing the image (fresh
-# node, pruned store) still gets it even when the local build is unchanged. Set
-# PHILOS_FORCE_SHIP=1 to skip the check and always upload.
+# Build via the named recipe, then push. There is no skip-if-unchanged check:
+# the registry already deduplicates by layer digest, so pushing an unchanged
+# image only costs a few cheap digest HEAD requests over the tunnel.
 [private]
 _ship image build_recipe:
-    @set -eu; \
-        just {{build_recipe}}; \
-        if [ -n "${PHILOS_FORCE_SHIP:-}" ]; then \
-            echo "PHILOS_FORCE_SHIP set; forcing upload of {{image}}"; \
-            just _upload "{{image}}"; \
-        else \
-            [ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }; \
-            local_id=$(docker image inspect --format '{{{{.Id}}' "{{image}}"); \
-            filter="name==\"docker.io/{{image}}\",labels.\"balvi.image-id\"==\"$local_id\""; \
-            match=$(ssh "$PHILOS_K3S_NODE" "sudo k3s ctr images ls '$filter' -q" 2>/dev/null || true); \
-            if [ -n "$match" ]; then \
-                echo "{{image}} already on k3s node ($local_id); skipping upload"; \
-            else \
-                just _upload "{{image}}"; \
-            fi; \
-        fi
+    @just {{build_recipe}}
+    @just _upload "{{image}}"
 
 # Build the protonmail-bridge image locally from docker/protonmail-bridge.
 build-protonmail-bridge version=protonmail_bridge_version tag=protonmail_bridge_tag:
     @just _build "{{protonmail_bridge_image}}:{{tag}}" docker/protonmail-bridge/Dockerfile --build-arg version={{version}}
 
-# Stream the locally built protonmail-bridge image to the remote k3s node.
+# Push the locally built protonmail-bridge image to the on-node registry.
 upload-protonmail-bridge tag=protonmail_bridge_tag:
     @just _upload "{{protonmail_bridge_image}}:{{tag}}"
 
@@ -113,7 +123,7 @@ upload-protonmail-bridge tag=protonmail_bridge_tag:
 build-api tag=api_tag:
     @just _build "{{api_image}}:{{tag}}" docker/api/Dockerfile
 
-# Stream the locally built api image to the remote k3s node.
+# Push the locally built api image to the on-node registry.
 upload-api tag=api_tag:
     @just _upload "{{api_image}}:{{tag}}"
 
@@ -128,7 +138,7 @@ build-approve:
 build-signal-cli version=signal_cli_version tag=signal_cli_tag:
     @just _build "{{signal_cli_image}}:{{tag}}" docker/signal-cli/Dockerfile --build-arg version={{version}}
 
-# Stream the locally built signal-cli image to the remote k3s node.
+# Push the locally built signal-cli image to the on-node registry.
 upload-signal-cli tag=signal_cli_tag:
     @just _upload "{{signal_cli_image}}:{{tag}}"
 
@@ -138,7 +148,7 @@ upload-signal-cli tag=signal_cli_tag:
 build-hermes-skills tag=hermes_skills_tag:
     @just _build "{{hermes_skills_image}}:{{tag}}" docker/hermes-skills/Dockerfile
 
-# Stream the locally built hermes-skills image to the remote k3s node.
+# Push the locally built hermes-skills image to the on-node registry.
 upload-hermes-skills tag=hermes_skills_tag:
     @just _upload "{{hermes_skills_image}}:{{tag}}"
 
@@ -147,7 +157,7 @@ upload-hermes-skills tag=hermes_skills_tag:
 build-hermes-agent version=hermes_agent_version tag=hermes_agent_tag:
     @just _build "{{hermes_agent_image}}:{{tag}}" docker/hermes-agent/Dockerfile --build-arg HERMES_VERSION={{version}}
 
-# Stream the locally built hermes-agent image to the remote k3s node.
+# Push the locally built hermes-agent image to the on-node registry.
 upload-hermes-agent tag=hermes_agent_tag:
     @just _upload "{{hermes_agent_image}}:{{tag}}"
 
