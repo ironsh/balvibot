@@ -60,6 +60,31 @@ func (h *restHandlers) getAction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getApprovalUser handles GET /approval-users/{email}, returning the operator's
+// authorized key fingerprint so the CLI can auto-select the matching ssh-agent
+// key. Operator-facing, reachable only over the node's SSH session.
+func (h *restHandlers) getApprovalUser(w http.ResponseWriter, r *http.Request) {
+	email := r.PathValue("email")
+	if email == "" {
+		writeError(w, http.StatusBadRequest, "email is required")
+		return
+	}
+	u, err := h.st.GetApprovalUser(r.Context(), email)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no authorized key for "+email)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ApprovalUserView{
+		Email:       u.Email,
+		Fingerprint: u.Fingerprint,
+		PublicKey:   u.PublicKey,
+	})
+}
+
 // approveAction handles POST /actions/{id}/approve: verify the operator's SSH
 // signature over the action's signing payload, then dispatch the action.
 func (h *restHandlers) approveAction(w http.ResponseWriter, r *http.Request) {
