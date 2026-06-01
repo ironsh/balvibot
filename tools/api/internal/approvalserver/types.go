@@ -21,6 +21,15 @@ type ListActionsResponse struct {
 	Actions []store.ApprovalAction `json:"actions"`
 }
 
+// ApprovalUserView is the GET /approval-users/{email} body. It lets the CLI
+// learn which key fingerprint an operator must sign with, so it can
+// auto-select the matching ssh-agent key.
+type ApprovalUserView struct {
+	Email       string `json:"email"`
+	Fingerprint string `json:"fingerprint"`
+	PublicKey   string `json:"ssh_public_key"`
+}
+
 // ApproveRequest is the POST /actions/{id}/approve body. Signature is the
 // base64-encoded ssh.Signature of the action's signing payload.
 type ApproveRequest struct {

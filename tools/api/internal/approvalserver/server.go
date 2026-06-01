@@ -35,6 +35,7 @@ func Run(ctx context.Context, cfg Config, st *store.Store, registry *approval.Re
 	mux.HandleFunc("GET /actions", rh.listActions)
 	mux.HandleFunc("GET /actions/{id}", rh.getAction)
 	mux.HandleFunc("POST /actions/{id}/approve", rh.approveAction)
+	mux.HandleFunc("GET /approval-users/{email}", rh.getApprovalUser)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

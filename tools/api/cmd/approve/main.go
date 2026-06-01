@@ -3,6 +3,14 @@
 // the action's canonical payload with the operator's SSH key (via ssh-agent or
 // a private key file). It talks to `api approve-serve` over HTTP and never
 // touches the database directly.
+//
+// Signing key selection: on approve it asks the server for the fingerprint of
+// the authorized key registered to --email, then auto-selects that key from
+// ssh-agent (or the --key file). This means the 1Password agent's many keys
+// just work with no extra flags. --agent-key (SHA256 fingerprint or comment
+// substring) is an override for when the server can't be consulted; absent
+// both, it prefers ssh-agent (matching --key.pub or its sole key) and falls
+// back to the --key private key file.
 package main
 
 import (
@@ -16,8 +24,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -37,9 +47,10 @@ func main() {
 }
 
 type globals struct {
-	server string
-	email  string
-	key    string
+	server   string
+	email    string
+	key      string
+	agentKey string
 }
 
 func newRootCmd() *cobra.Command {
@@ -52,7 +63,8 @@ func newRootCmd() *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&g.server, "server", envDefault("BALVI_APPROVE_SERVER", "http://localhost:8090"), "Approval service base URL.")
 	root.PersistentFlags().StringVar(&g.email, "email", os.Getenv("BALVI_APPROVE_EMAIL"), "Your email (must match an authorized approval user).")
-	root.PersistentFlags().StringVar(&g.key, "key", defaultKeyPath(), "Path to your SSH private key (used directly or to select the ssh-agent key).")
+	root.PersistentFlags().StringVar(&g.key, "key", defaultKeyPath(), "Path to your SSH private key (used directly or to select the ssh-agent key via its .pub).")
+	root.PersistentFlags().StringVar(&g.agentKey, "agent-key", os.Getenv("BALVI_APPROVE_AGENT_KEY"), "Override key selection: pick an ssh-agent key by SHA256 fingerprint or comment substring (agent-only; skips the auto-select and key file).")
 	root.AddCommand(newListCmd(g), newShowCmd(g), newApproveCmd(g))
 	return root
 }
@@ -138,7 +150,19 @@ func newApproveCmd(g *globals) *cobra.Command {
 				return errors.New("aborted")
 			}
 
-			signer, err := getSigner(g.key)
+			// Ask the server which key fingerprint this operator must sign with,
+			// so we can auto-select the matching ssh-agent key. Best-effort: an
+			// older server or unregistered email leaves wantFP empty and we fall
+			// back to heuristics.
+			var wantFP string
+			var who struct {
+				Fingerprint string `json:"fingerprint"`
+			}
+			if err := getJSON(cmd.Context(), g.server+"/approval-users/"+url.PathEscape(g.email), &who); err == nil {
+				wantFP = who.Fingerprint
+			}
+
+			signer, err := getSigner(g.key, g.agentKey, wantFP)
 			if err != nil {
 				return err
 			}
@@ -185,33 +209,96 @@ func printAction(v actionView) {
 
 // ---------- ssh signer ----------
 
-// getSigner returns an ssh.Signer for keyPath. It prefers ssh-agent (matching
-// keyPath.pub when available), and falls back to reading the private key file.
-func getSigner(keyPath string) (ssh.Signer, error) {
-	var want ssh.PublicKey
-	if pubBytes, err := os.ReadFile(keyPath + ".pub"); err == nil {
-		if pub, _, _, _, perr := ssh.ParseAuthorizedKey(pubBytes); perr == nil {
-			want = pub
+// getSigner returns an ssh.Signer to sign approvals with.
+//
+// Selection precedence:
+//   - agentSel (--agent-key): an explicit override; select that agent key by
+//     SHA256 fingerprint or comment substring and never touch the key file.
+//   - wantFP (the operator's authorized fingerprint, from the server): pick
+//     exactly that key, from ssh-agent or the keyPath file. Anything else would
+//     fail server-side verification, so a miss is an error, not a fallback.
+//   - otherwise: prefer ssh-agent (matching keyPath.pub, or the agent's sole
+//     key) and fall back to reading the keyPath private key file.
+func getSigner(keyPath, agentSel, wantFP string) (ssh.Signer, error) {
+	// Best-effort: the agent may be absent. The connection is intentionally
+	// left open for the life of the process, because the returned agent signer
+	// signs over it; the OS reaps the fd on exit.
+	signers, agentErr := agentSigners()
+
+	// An explicit selector means "use the agent", so surface why it can't.
+	if agentSel != "" {
+		if len(signers) == 0 {
+			return nil, fmt.Errorf("--agent-key %q given but ssh-agent has no usable keys (is SSH_AUTH_SOCK set?): %w", agentSel, agentErr)
+		}
+		return selectAgentKey(signers, agentSel)
+	}
+
+	// The server told us exactly which key this operator must sign with.
+	if wantFP != "" {
+		if s := agentKeyByFingerprint(signers, wantFP); s != nil {
+			return s, nil
+		}
+		if pubFileFingerprint(keyPath) == wantFP {
+			return loadKeyFile(keyPath)
+		}
+		msg := fmt.Sprintf("your authorized key for this email (%s) is not in ssh-agent or at %s", wantFP, keyPath)
+		if len(signers) > 0 {
+			msg += "\nssh-agent holds:\n" + formatAgentKeys(signers)
+		}
+		return nil, errors.New(msg)
+	}
+
+	// No fingerprint hint: match an agent key against keyPath.pub if present.
+	if fp := pubFileFingerprint(keyPath); fp != "" {
+		if s := agentKeyByFingerprint(signers, fp); s != nil {
+			return s, nil
 		}
 	}
 
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		if conn, err := net.Dial("unix", sock); err == nil {
-			defer conn.Close()
-			if signers, err := agent.NewClient(conn).Signers(); err == nil && len(signers) > 0 {
-				if want != nil {
-					for _, s := range signers {
-						if bytes.Equal(s.PublicKey().Marshal(), want.Marshal()) {
-							return s, nil
-						}
-					}
-				} else if len(signers) == 1 {
-					return signers[0], nil
-				}
-			}
-		}
+	// A single agent key is unambiguous.
+	if len(signers) == 1 {
+		return signers[0], nil
 	}
 
+	signer, err := loadKeyFile(keyPath)
+	if err == nil {
+		return signer, nil
+	}
+	if len(signers) > 1 {
+		return nil, fmt.Errorf("ssh-agent holds %d keys and none could be auto-selected (no %s.pub to match); pass --agent-key with a fingerprint or comment:\n%s",
+			len(signers), keyPath, formatAgentKeys(signers))
+	}
+	return nil, err
+}
+
+// agentKeyByFingerprint returns the agent signer whose public key has the given
+// SHA256 fingerprint, or nil.
+func agentKeyByFingerprint(signers []ssh.Signer, fp string) ssh.Signer {
+	for _, s := range signers {
+		if ssh.FingerprintSHA256(s.PublicKey()) == fp {
+			return s
+		}
+	}
+	return nil
+}
+
+// pubFileFingerprint returns the SHA256 fingerprint of keyPath.pub, or "" if it
+// is absent or unparseable.
+func pubFileFingerprint(keyPath string) string {
+	b, err := os.ReadFile(keyPath + ".pub")
+	if err != nil {
+		return ""
+	}
+	pub, _, _, _, err := ssh.ParseAuthorizedKey(b)
+	if err != nil {
+		return ""
+	}
+	return ssh.FingerprintSHA256(pub)
+}
+
+// loadKeyFile reads and parses the private key at keyPath, turning a
+// passphrase-protected key into actionable advice.
+func loadKeyFile(keyPath string) (ssh.Signer, error) {
 	raw, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read key %s: %w", keyPath, err)
@@ -225,6 +312,62 @@ func getSigner(keyPath string) (ssh.Signer, error) {
 		return nil, fmt.Errorf("parse key %s: %w", keyPath, err)
 	}
 	return signer, nil
+}
+
+// agentSigners returns the signers held by the ssh-agent at SSH_AUTH_SOCK, or
+// nil when no agent is configured.
+func agentSigners() ([]ssh.Signer, error) {
+	sock := os.Getenv("SSH_AUTH_SOCK")
+	if sock == "" {
+		return nil, errors.New("SSH_AUTH_SOCK is not set")
+	}
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		return nil, fmt.Errorf("dial ssh-agent: %w", err)
+	}
+	return agent.NewClient(conn).Signers()
+}
+
+// selectAgentKey picks the single agent signer matching sel, which is either a
+// full SHA256 fingerprint (e.g. "SHA256:abc...") or a substring of the key's
+// comment. It errors if nothing matches or the match is ambiguous.
+func selectAgentKey(signers []ssh.Signer, sel string) (ssh.Signer, error) {
+	var matches []ssh.Signer
+	for _, s := range signers {
+		if ssh.FingerprintSHA256(s.PublicKey()) == sel {
+			return s, nil // exact fingerprint: unambiguous by construction
+		}
+		if c := agentKeyComment(s); c != "" && strings.Contains(c, sel) {
+			matches = append(matches, s)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return nil, fmt.Errorf("no ssh-agent key matches %q; available keys:\n%s", sel, formatAgentKeys(signers))
+	default:
+		return nil, fmt.Errorf("%q matches %d ssh-agent keys; use a full SHA256 fingerprint:\n%s", sel, len(matches), formatAgentKeys(matches))
+	}
+}
+
+// agentKeyComment returns the comment of an ssh-agent key, if available. The
+// agent client exposes it via *agent.Key; other public keys carry no comment.
+func agentKeyComment(s ssh.Signer) string {
+	if k, ok := s.PublicKey().(*agent.Key); ok {
+		return k.Comment
+	}
+	return ""
+}
+
+// formatAgentKeys renders agent keys as indented "fingerprint  comment" lines
+// for error messages that ask the operator to pick one.
+func formatAgentKeys(signers []ssh.Signer) string {
+	var b strings.Builder
+	for _, s := range signers {
+		fmt.Fprintf(&b, "  %s  %s\n", ssh.FingerprintSHA256(s.PublicKey()), agentKeyComment(s))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // ---------- http helpers ----------
