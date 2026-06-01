@@ -21,6 +21,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ironsh/balvibot/tools/api/internal/actions"
+	"github.com/ironsh/balvibot/tools/api/internal/approval"
 	"github.com/ironsh/balvibot/tools/api/internal/store"
 )
 
@@ -28,6 +29,16 @@ const (
 	serverName    = "philos-api"
 	serverVersion = "0.1.0"
 )
+
+// serverInstructions is sent to clients during MCP initialization. It explains
+// the read-only corpus tools and, importantly, the write-for-approval flow: the
+// mutating tools never act immediately, they return an approval_id that a human
+// operator approves out-of-band with the balvi-approve CLI.
+const serverInstructions = `This server exposes a read-only corpus (grantees, mail, documents) plus a few mutating tools that are gated on human approval.
+
+Read tools (list_grantees, list/get/search emails and threads, list/get documents) return data directly.
+
+Mutating tools (add_grantee, add_approval_user) do NOT take effect immediately. Each one queues the action for human approval and returns an approval_id (with status "pending"). The change is applied only after an operator approves that approval_id out-of-band using the balvi-approve CLI, which signs the request with their SSH key. When you call a mutating tool, report the returned approval_id back to the user and tell them it must be approved via balvi-approve before it takes effect; do not assume the action has been performed.`
 
 type Config struct {
 	BindAddr    string
@@ -114,7 +125,7 @@ func buildServer(st *store.Store) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
 		Version: serverVersion,
-	}, nil)
+	}, &mcp.ServerOptions{Instructions: serverInstructions})
 
 	h := &handlers{st: st}
 
@@ -158,6 +169,10 @@ func buildServer(st *store.Store) *mcp.Server {
 		Name:        "add_grantee",
 		Description: "Request creation of a new grantee. This does NOT create the grantee immediately: it queues the action for human approval and returns an approval_id. The grantee is created only after an operator approves it.",
 	}, h.addGrantee)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "add_approval_user",
+		Description: "Request authorization of a new approval operator by email and SSH public key. This does NOT authorize the operator immediately: it queues the action for human approval and returns an approval_id. The operator can approve actions only after an existing operator approves this request.",
+	}, h.addApprovalUser)
 
 	// ---- docs ----
 	mcp.AddTool(s, &mcp.Tool{
@@ -205,11 +220,55 @@ func (h *handlers) addGrantee(ctx context.Context, _ *mcp.CallToolRequest, in *A
 	if err != nil {
 		return nil, nil, err
 	}
-	id, err := h.st.EnqueueAction(ctx, actions.ActionAddGrantee, args, nil, in.RequestedBy)
+	meta, err := actionMetadata(in.SignalNumber)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := h.st.EnqueueAction(ctx, actions.ActionAddGrantee, args, meta, in.RequestedBy)
 	if err != nil {
 		return nil, nil, err
 	}
 	return nil, &EnqueueResult{ApprovalID: id, Action: actions.ActionAddGrantee, Status: store.ApprovalPending}, nil
+}
+
+func (h *handlers) addApprovalUser(ctx context.Context, _ *mcp.CallToolRequest, in *AddApprovalUserInput) (*mcp.CallToolResult, *EnqueueResult, error) {
+	email := strings.TrimSpace(in.Email)
+	if email == "" {
+		return nil, nil, errors.New("email is required")
+	}
+	pubKey := strings.TrimSpace(in.PublicKey)
+	if pubKey == "" {
+		return nil, nil, errors.New("ssh_public_key is required")
+	}
+	// Validate the key shape now so the agent gets immediate feedback rather
+	// than a failure surfacing only after an operator approves it.
+	if _, err := approval.Fingerprint(pubKey); err != nil {
+		return nil, nil, fmt.Errorf("invalid ssh_public_key: %w", err)
+	}
+	args, err := json.Marshal(actions.AddApprovalUserArgs{Email: email, PublicKey: pubKey})
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := actionMetadata(in.SignalNumber)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := h.st.EnqueueAction(ctx, actions.ActionAddApprovalUser, args, meta, in.RequestedBy)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, &EnqueueResult{ApprovalID: id, Action: actions.ActionAddApprovalUser, Status: store.ApprovalPending}, nil
+}
+
+// actionMetadata builds the approval_actions.metadata JSON for an enqueued
+// action. It returns nil (letting EnqueueAction default to "{}") when there is
+// no request context to record.
+func actionMetadata(signalNumber string) (json.RawMessage, error) {
+	sn := strings.TrimSpace(signalNumber)
+	if sn == "" {
+		return nil, nil
+	}
+	return json.Marshal(actions.Metadata{SignalNumber: sn})
 }
 
 // ---------- grantees ----------

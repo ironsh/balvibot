@@ -20,9 +20,19 @@ type EnqueueResult struct {
 
 // AddGranteeInput requests creation of a new grantee (queued for approval).
 type AddGranteeInput struct {
-	Slug        string `json:"slug" jsonschema:"Stable grantee id/slug to create (e.g. acme-foundation)."`
-	DisplayName string `json:"display_name,omitempty" jsonschema:"Optional human-readable name."`
-	RequestedBy string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
+	Slug         string `json:"slug" jsonschema:"Stable grantee id/slug to create (e.g. acme-foundation). Must be unique."`
+	DisplayName  string `json:"display_name,omitempty" jsonschema:"Optional human-readable name."`
+	SignalNumber string `json:"signal_number,omitempty" jsonschema:"Optional Signal phone number that requested this action."`
+	RequestedBy  string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
+}
+
+// AddApprovalUserInput requests authorization of a new approval operator
+// (queued for approval).
+type AddApprovalUserInput struct {
+	Email        string `json:"email" jsonschema:"Operator email address. Must be unique."`
+	PublicKey    string `json:"ssh_public_key" jsonschema:"Operator SSH public key in authorized_keys format (e.g. 'ssh-ed25519 AAAA... comment')."`
+	SignalNumber string `json:"signal_number,omitempty" jsonschema:"Optional Signal phone number that requested this action."`
+	RequestedBy  string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
 }
 
 // ---------- grantees ----------
