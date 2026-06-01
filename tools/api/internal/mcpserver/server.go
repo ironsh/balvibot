@@ -43,7 +43,9 @@ const (
 // operator approves out-of-band with the balvi-approve CLI.
 const serverInstructions = `This server exposes a read-only corpus (grantees, mail, documents) plus a few mutating tools that are gated on human approval.
 
-Read tools (list_grantees, list/get/search emails and threads, list/get documents) return data directly.
+Read tools (list_grantees, list/get/search emails and threads, list/get documents, list_notes) return data directly.
+
+The notes tools (create_note, list_notes) are durable, agent-managed memory about a grantee. create_note writes immediately (no approval): use it to remember facts, preferences, status, or contacts a user asks you to track, and list_notes to recall them.
 
 Mutating tools (add_grantee, add_approval_user, whitelist_doc, authorize_grantee_email) do NOT take effect immediately. Each one queues the action for human approval and returns an approval_id (with status "pending"). The change is applied only after an operator approves that approval_id out-of-band using the balvi-approve CLI, which signs the request with their SSH key. When you call a mutating tool, report the returned approval_id back to the user and tell them it must be approved via balvi-approve before it takes effect; do not assume the action has been performed.`
 
@@ -225,6 +227,20 @@ func buildServer(st *store.Store, drv DriveLookup) *mcp.Server {
 		Name:        "list_approvals",
 		Description: "List queued approval actions with their current state (pending, executed, failed, rejected), newest first. Each entry includes the action name, the JSON args that were requested, who requested it, who approved it, timestamps, and any last error. Pass an optional status to filter; omit it to see everything. Use this to help debug the approval queue with a user.",
 	}, h.listApprovals)
+
+	// ---- notes ----
+	// Notes are durable, agent-managed memory about a grantee. Unlike the
+	// action tools above, these are NOT approval-gated: they write directly,
+	// because a note is additive, low-risk memory rather than a side effect on
+	// the outside world.
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "create_note",
+		Description: "Record a note about a grantee so it can be recalled later. Use this whenever a user asks you to remember, note, or track something about a grantee (a fact, a preference, a status, a contact detail). Writes immediately and returns the stored note (no approval needed). Set kind to classify the note (note, fact, preference, status, contact; defaults to note). To correct or replace an earlier note, pass its id as supersedes_id: the old note is kept for history but hidden from list_notes by default.",
+	}, h.createNote)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_notes",
+		Description: "List notes recorded about a grantee, newest first. Supports filtering by kind and by a created_at time range (since/until), and cursor pagination. Superseded notes are omitted unless include_superseded is set. Use this to recall what you've been told about a grantee.",
+	}, h.listNotes)
 
 	// ---- docs ----
 	mcp.AddTool(s, &mcp.Tool{
@@ -606,6 +622,89 @@ func (h *handlers) listAttachments(ctx context.Context, _ *mcp.CallToolRequest, 
 		atts = []store.Attachment{}
 	}
 	return nil, &ListAttachmentsOutput{Attachments: atts}, nil
+}
+
+// ---------- notes ----------
+
+func (h *handlers) createNote(ctx context.Context, _ *mcp.CallToolRequest, in *CreateNoteInput) (*mcp.CallToolResult, *CreateNoteOutput, error) {
+	grantee := strings.TrimSpace(in.GranteeID)
+	if grantee == "" {
+		return nil, nil, errors.New("grantee_id is required")
+	}
+	if strings.TrimSpace(in.Content) == "" {
+		return nil, nil, errors.New("content is required")
+	}
+	kind := strings.TrimSpace(in.Kind)
+	if kind != "" && !store.ValidNoteKind(kind) {
+		return nil, nil, fmt.Errorf("invalid kind %q: expected one of %s", kind, strings.Join(store.NoteKinds, ", "))
+	}
+	if _, err := h.st.GetGrantee(ctx, grantee); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil, fmt.Errorf("grantee_not_found: %s", grantee)
+		}
+		return nil, nil, err
+	}
+	n := store.Note{
+		GranteeID:    grantee,
+		Kind:         kind,
+		Content:      in.Content,
+		SignalNumber: in.SignalNumber,
+	}
+	if in.SupersedesID != 0 {
+		// Confirm the superseded note exists and belongs to the same grantee, so
+		// a note can't be made to supersede an unrelated grantee's note.
+		prev, err := h.st.GetNote(ctx, in.SupersedesID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, nil, fmt.Errorf("supersedes_id %d not found", in.SupersedesID)
+			}
+			return nil, nil, err
+		}
+		if prev.GranteeID != grantee {
+			return nil, nil, fmt.Errorf("supersedes_id %d belongs to grantee %s, not %s", in.SupersedesID, prev.GranteeID, grantee)
+		}
+		n.SupersedesID = &in.SupersedesID
+	}
+	saved, err := h.st.CreateNote(ctx, n)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, &CreateNoteOutput{Note: saved}, nil
+}
+
+func (h *handlers) listNotes(ctx context.Context, _ *mcp.CallToolRequest, in *ListNotesInput) (*mcp.CallToolResult, *ListNotesOutput, error) {
+	grantee := strings.TrimSpace(in.GranteeID)
+	if grantee == "" {
+		return nil, nil, errors.New("grantee_id is required")
+	}
+	kind := strings.TrimSpace(in.Kind)
+	if kind != "" && !store.ValidNoteKind(kind) {
+		return nil, nil, fmt.Errorf("invalid kind %q: expected one of %s", kind, strings.Join(store.NoteKinds, ", "))
+	}
+	since, err := parseTimeBound(in.Since)
+	if err != nil {
+		return nil, nil, err
+	}
+	until, err := parseTimeBound(in.Until)
+	if err != nil {
+		return nil, nil, err
+	}
+	notes, next, err := h.st.ListNotes(ctx, store.NoteFilter{
+		GranteeID:         grantee,
+		Kind:              kind,
+		Since:             since,
+		Until:             until,
+		IncludeSuperseded: in.IncludeSuperseded,
+		Limit:             in.Limit,
+		Cursor:            in.Cursor,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if notes == nil {
+		notes = []store.Note{}
+	}
+	return nil, &ListNotesOutput{Notes: notes, NextCursor: next}, nil
 }
 
 // ---------- docs ----------

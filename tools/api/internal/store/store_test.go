@@ -29,7 +29,7 @@ func openTestStore(t *testing.T) (*store.Store, context.Context) {
 		TRUNCATE grantees, grantee_emails, grantee_sources,
 		         threads, messages, message_references, message_recipients,
 		         attachments, mailbox_state, docs, sync_state,
-		         approval_actions, approval_users RESTART IDENTITY CASCADE
+		         approval_actions, approval_users, notes RESTART IDENTITY CASCADE
 	`)
 	require.NoError(t, err)
 	st := store.New(pool)

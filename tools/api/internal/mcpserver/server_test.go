@@ -53,7 +53,7 @@ func newTestStore(t *testing.T) *store.Store {
 		TRUNCATE grantees, grantee_emails, grantee_sources,
 		         threads, messages, message_references, message_recipients,
 		         attachments, mailbox_state, docs, sync_state,
-		         approval_actions, approval_users RESTART IDENTITY CASCADE
+		         approval_actions, approval_users, notes RESTART IDENTITY CASCADE
 	`)
 	require.NoError(t, err)
 	st := store.New(pool)
@@ -350,6 +350,57 @@ func TestAuthorizeGranteeEmail(t *testing.T) {
 		"grantee_id": "acme", "email": "  ",
 	})
 	require.Contains(t, msg, "email is required")
+}
+
+// TestNotes drives the create_note/list_notes round trip: a note writes
+// immediately (no approval), supersedes_id hides the old note by default and
+// surfaces it with include_superseded, and bad inputs are refused.
+func TestNotes(t *testing.T) {
+	st := newTestStore(t)
+	endpoint, token := startTestServer(t, st)
+	sess := newClientSession(t, endpoint, token)
+
+	created := callTool[CreateNoteOutput](t, sess, "create_note", map[string]any{
+		"grantee_id": "acme", "content": "prefers async updates",
+		"kind": "preference", "signal_number": "+15551234567",
+	})
+	require.NotNil(t, created.Note)
+	require.NotZero(t, created.Note.ID)
+	require.Equal(t, "preference", created.Note.Kind)
+	require.Equal(t, "+15551234567", created.Note.SignalNumber)
+
+	listed := callTool[ListNotesOutput](t, sess, "list_notes", map[string]any{"grantee_id": "acme"})
+	require.Len(t, listed.Notes, 1)
+	require.Equal(t, created.Note.ID, listed.Notes[0].ID)
+
+	// Supersede it; the old note drops out of the default list.
+	replaced := callTool[CreateNoteOutput](t, sess, "create_note", map[string]any{
+		"grantee_id": "acme", "content": "prefers a weekly call after all",
+		"kind": "preference", "supersedes_id": created.Note.ID,
+	})
+	require.Equal(t, created.Note.ID, *replaced.Note.SupersedesID)
+
+	current := callTool[ListNotesOutput](t, sess, "list_notes", map[string]any{"grantee_id": "acme"})
+	require.Len(t, current.Notes, 1)
+	require.Equal(t, replaced.Note.ID, current.Notes[0].ID)
+
+	all := callTool[ListNotesOutput](t, sess, "list_notes", map[string]any{
+		"grantee_id": "acme", "include_superseded": true,
+	})
+	require.Len(t, all.Notes, 2)
+
+	// Unknown grantee, blank content, bad kind, and cross-grantee supersede are
+	// all refused.
+	msg := callToolExpectError(t, sess, "create_note", map[string]any{"grantee_id": "ghost", "content": "x"})
+	require.Contains(t, msg, "grantee_not_found")
+	msg = callToolExpectError(t, sess, "create_note", map[string]any{"grantee_id": "acme", "content": "  "})
+	require.Contains(t, msg, "content is required")
+	msg = callToolExpectError(t, sess, "create_note", map[string]any{"grantee_id": "acme", "content": "x", "kind": "bogus"})
+	require.Contains(t, msg, "invalid kind")
+	msg = callToolExpectError(t, sess, "create_note", map[string]any{
+		"grantee_id": "beta", "content": "x", "supersedes_id": created.Note.ID,
+	})
+	require.Contains(t, msg, "belongs to grantee acme")
 }
 
 func TestGetDocumentCrossGranteeRefused(t *testing.T) {
