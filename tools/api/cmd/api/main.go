@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/oauth2/google"
 
 	"github.com/ironsh/balvibot/tools/api/internal/actions"
 	"github.com/ironsh/balvibot/tools/api/internal/approval"
@@ -202,13 +203,51 @@ func newServeCmd() *cobra.Command {
 			defer pool.Close()
 			st := store.New(pool)
 
+			// whitelist_doc resolves a Drive id's folder-vs-doc type at enqueue
+			// time, so the MCP server needs read-only Drive access. As a
+			// trusted backend (not an agent workload), it holds the
+			// service-account credential and talks to Drive directly. If the
+			// credential is missing or unreadable we still start: every other
+			// tool is Drive-free and whitelist_doc fails loudly when called.
+			var d mcpserver.DriveLookup
+			if drv, err := newDriveClient(ctx, cfg); err != nil {
+				logger.Warn("drive client unavailable; whitelist_doc will fail until configured", "err", err)
+			} else {
+				d = drv
+			}
+
 			logger.Info("starting api serve", "mcp_bind", cfg.MCPBindAddr)
 			return mcpserver.Run(ctx, mcpserver.Config{
 				BindAddr:    cfg.MCPBindAddr,
 				BearerToken: cfg.MCPBearerToken,
-			}, st, logger)
+			}, st, d, logger)
 		},
 	}
+}
+
+// driveReadonlyScope is all whitelist_doc needs: files.get metadata to tell a
+// folder from a Google Doc.
+const driveReadonlyScope = "https://www.googleapis.com/auth/drive.readonly"
+
+// newDriveClient builds a Drive client that authenticates directly with the
+// service-account key at cfg.GoogleSAKeyFile (no iron-proxy: the MCP server is
+// a trusted backend that holds the credential itself).
+func newDriveClient(ctx context.Context, cfg *config.Config) (*drive.Client, error) {
+	if cfg.GoogleSAKeyFile == "" {
+		return nil, errors.New("GOOGLE_APPLICATION_CREDENTIALS not set")
+	}
+	keyJSON, err := os.ReadFile(cfg.GoogleSAKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("read service-account key: %w", err)
+	}
+	creds, err := google.CredentialsFromJSON(ctx, keyJSON, driveReadonlyScope)
+	if err != nil {
+		return nil, fmt.Errorf("parse service-account key: %w", err)
+	}
+	return drive.New(drive.Config{
+		BaseURL:     cfg.DriveBaseURL,
+		TokenSource: creds.TokenSource,
+	})
 }
 
 // ---------- approve-serve (approval service) ----------
@@ -240,7 +279,10 @@ func newApproveServeCmd() *cobra.Command {
 
 			// Executor: the real handlers for each approval-gated action. The
 			// MCP tools on the api server enqueue these; they run here only
-			// after an operator's signature is verified.
+			// after an operator's signature is verified. The executors are
+			// Drive-free — whitelist_doc's folder-vs-doc classification is
+			// resolved at enqueue time by the MCP server, so this service
+			// needs no iron-proxy egress.
 			registry := approval.NewRegistry()
 			actions.Register(registry, st)
 
@@ -436,7 +478,6 @@ func newSyncGdocsCmd() *cobra.Command {
 			logger := setupLogger(cfg.LogLevel)
 			logger.Info("starting gdocs sync",
 				"poll_interval", cfg.PollInterval.String(),
-				"iron_proxy_url", cfg.IronProxyURL,
 			)
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -449,11 +490,7 @@ func newSyncGdocsCmd() *cobra.Command {
 			defer pool.Close()
 			st := store.New(pool)
 
-			d, err := drive.New(drive.Config{
-				BaseURL:     cfg.DriveBaseURL,
-				BrokerToken: cfg.BrokerToken,
-				CAFile:      cfg.CAFile,
-			})
+			d, err := newDriveClient(ctx, cfg)
 			if err != nil {
 				return err
 			}

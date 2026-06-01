@@ -204,7 +204,7 @@ bootstrap-secrets:
             --from-literal=IMAP_USER="$PHILOS_IMAP_USER" \
             --from-literal=IMAP_PASS="$PHILOS_IMAP_PASS" \
             --dry-run=client -o yaml | kubectl apply -f -; \
-        kubectl create secret generic iron-proxy-gcp-sa \
+        kubectl create secret generic gdrive-sa \
             --namespace={{philos_namespace}} \
             --from-file=key.json="$PHILOS_GCP_SA_KEY_FILE" \
             --dry-run=client -o yaml | kubectl apply -f -

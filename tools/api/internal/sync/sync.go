@@ -2,8 +2,10 @@
 //  1. Increments a monotonic cycle counter.
 //  2. For each active grantee, walks every grantee_sources entry, fetches
 //     matching Google Docs, and upserts them into the docs table.
-//  3. Scans everything else shared with the SA into unregistered_docs.
-//  4. Marks any previously-active doc that wasn't seen in this cycle stale.
+//  3. Marks any previously-active doc that wasn't seen in this cycle stale.
+//
+// Only whitelisted sources (grantee_sources) are ever fetched; anything else
+// shared with the service account is ignored.
 //
 // Per-doc errors are recorded on the row but do not fail the cycle.
 package sync
@@ -24,20 +26,18 @@ import (
 // tests via an in-memory implementation.
 type DriveAPI interface {
 	ListFolder(ctx context.Context, folderID, pageToken string) (*drive.FileList, error)
-	ListSharedWithMe(ctx context.Context, pageToken string) (*drive.FileList, error)
 	GetFile(ctx context.Context, fileID, fields string) (*drive.File, error)
 	ExportMarkdown(ctx context.Context, fileID string) (string, error)
 }
 
 // Stats summarizes one cycle for logging / metrics.
 type Stats struct {
-	CycleID          int64
-	DocsSynced       int // freshly written or rewritten
-	DocsUnchanged    int // unchanged-modifiedTime touches
-	DocsSkipped      int // mime mismatch
-	DocsFailed       int // export errors that landed status=error
-	DocsMarkedStale  int // 403/404 + unseen-this-cycle
-	UnregisteredSeen int
+	CycleID         int64
+	DocsSynced      int // freshly written or rewritten
+	DocsUnchanged   int // unchanged-modifiedTime touches
+	DocsSkipped     int // mime mismatch
+	DocsFailed      int // export errors that landed status=error
+	DocsMarkedStale int // 403/404 + unseen-this-cycle
 }
 
 // Run executes one full sync cycle and returns Stats. The cycle never aborts
@@ -68,10 +68,6 @@ func Run(ctx context.Context, st *store.Store, d DriveAPI, logger *slog.Logger) 
 		}
 	}
 
-	if err := scanUnregistered(ctx, st, d, stats, logger); err != nil {
-		logger.Error("unregistered scan failed", "err", err)
-	}
-
 	marked, err := st.MarkUnseenStale(ctx, cycleID)
 	if err != nil {
 		return stats, fmt.Errorf("mark unseen stale: %w", err)
@@ -88,7 +84,6 @@ func Run(ctx context.Context, st *store.Store, d DriveAPI, logger *slog.Logger) 
 		"skipped", stats.DocsSkipped,
 		"failed", stats.DocsFailed,
 		"stale", stats.DocsMarkedStale,
-		"unregistered_seen", stats.UnregisteredSeen,
 	)
 	return stats, nil
 }
@@ -238,52 +233,6 @@ func processDoc(ctx context.Context, st *store.Store, d DriveAPI, g *store.Grant
 		return
 	}
 	stats.DocsSynced++
-}
-
-// scanUnregistered records every file shared with the SA that is NOT already
-// registered as a grantee source. Status is preserved if the row exists.
-func scanUnregistered(ctx context.Context, st *store.Store, d DriveAPI, stats *Stats, logger *slog.Logger) error {
-	registered, err := st.AllSourceDriveIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("list registered source ids: %w", err)
-	}
-	pageToken := ""
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		page, err := d.ListSharedWithMe(ctx, pageToken)
-		if err != nil {
-			return fmt.Errorf("list sharedWithMe: %w", err)
-		}
-		for i := range page.Files {
-			f := page.Files[i]
-			if registered[f.ID] {
-				continue
-			}
-			seen, err := parseDriveTime(f.SharedWithMeTime)
-			if err != nil || seen.IsZero() {
-				seen = time.Now()
-			}
-			u := store.UnregisteredDoc{
-				DocID:      f.ID,
-				OwnerEmail: f.PrimaryOwnerEmail(),
-				Title:      f.Name,
-				MimeType:   f.MimeType,
-				FirstSeen:  seen,
-				LastSeen:   time.Now(),
-			}
-			if err := st.UpsertUnregisteredDoc(ctx, u); err != nil {
-				logger.Error("upsert unregistered failed", "doc_id", f.ID, "err", err)
-				continue
-			}
-			stats.UnregisteredSeen++
-		}
-		if page.NextPageToken == "" {
-			return nil
-		}
-		pageToken = page.NextPageToken
-	}
 }
 
 func parseDriveTime(s string) (time.Time, error) {

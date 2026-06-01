@@ -1,25 +1,23 @@
-// Package drive is a tiny REST client over net/http for the three Google
-// Drive v3 endpoints the indexer needs: files.list, files.get, files.export.
+// Package drive is a tiny REST client over net/http for the Google Drive v3
+// endpoints we need: files.list, files.get, files.export.
 //
-// All requests carry a literal placeholder Bearer token (Config.BrokerToken).
-// We deliberately do NOT do OAuth — iron-proxy substitutes the placeholder
-// for a fresh service-account access token at the egress boundary. Treating
-// the token as opaque keeps the indexer free of Google credentials.
+// Callers authenticate with a Google service-account credential via
+// Config.TokenSource; the client sends the real, source-refreshed access token
+// on every request and talks to Drive directly.
 package drive
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 // DefaultBaseURL is the public Drive v3 endpoint. Override with
@@ -51,14 +49,11 @@ func IsNotFoundOrForbidden(err error) bool {
 type Config struct {
 	// BaseURL is the Drive v3 endpoint root. Defaults to DefaultBaseURL.
 	BaseURL string
-	// BrokerToken is the placeholder Bearer iron-proxy substitutes. We
-	// always send this verbatim; we never refresh it.
-	BrokerToken string
-	// CAFile, if set, is added to the TLS trust store (typically the
-	// iron-proxy CA so we trust the MITM cert on *.googleapis.com).
-	CAFile string
-	// HTTPClient, if set, is used as-is — bypasses CAFile / Transport
-	// construction. Tests use this to point at httptest.Server.
+	// TokenSource supplies OAuth2 access tokens for Google API access. The
+	// client sends these (refreshed by the source) on every request. Required.
+	TokenSource oauth2.TokenSource
+	// HTTPClient, if set, is used as-is — bypasses Transport construction.
+	// Tests use this to point at an httptest.Server.
 	HTTPClient *http.Client
 	// Timeout for individual HTTP requests. Defaults to 30s.
 	Timeout time.Duration
@@ -73,8 +68,8 @@ func New(cfg Config) (*Client, error) {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = DefaultBaseURL
 	}
-	if cfg.BrokerToken == "" {
-		return nil, errors.New("drive: BrokerToken is required")
+	if cfg.TokenSource == nil {
+		return nil, errors.New("drive: a TokenSource is required")
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
@@ -89,34 +84,10 @@ func New(cfg Config) (*Client, error) {
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
 		}
-		if cfg.CAFile != "" {
-			pool, err := loadCAPool(cfg.CAFile)
-			if err != nil {
-				return nil, fmt.Errorf("drive: load CA file %q: %w", cfg.CAFile, err)
-			}
-			tr.TLSClientConfig = &tls.Config{RootCAs: pool}
-		}
 		httpClient = &http.Client{Transport: tr, Timeout: cfg.Timeout}
 	}
 
 	return &Client{cfg: cfg, http: httpClient}, nil
-}
-
-func loadCAPool(path string) (*x509.CertPool, error) {
-	pem, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	// Start from the system roots so plain TLS still works for anything
-	// not MITM'd; iron-proxy's CA is an additional trust anchor.
-	pool, err := x509.SystemCertPool()
-	if err != nil || pool == nil {
-		pool = x509.NewCertPool()
-	}
-	if !pool.AppendCertsFromPEM(pem) {
-		return nil, fmt.Errorf("no certs found in %s", path)
-	}
-	return pool, nil
 }
 
 // ListFolder pages through files.list with the q clause restricted to
@@ -124,12 +95,6 @@ func loadCAPool(path string) (*x509.CertPool, error) {
 func (c *Client) ListFolder(ctx context.Context, folderID, pageToken string) (*FileList, error) {
 	q := fmt.Sprintf("'%s' in parents and trashed = false", escape(folderID))
 	return c.list(ctx, q, pageToken)
-}
-
-// ListSharedWithMe pages through everything shared with the service account
-// that the indexer hasn't classified yet.
-func (c *Client) ListSharedWithMe(ctx context.Context, pageToken string) (*FileList, error) {
-	return c.list(ctx, "sharedWithMe = true and trashed = false", pageToken)
 }
 
 func (c *Client) list(ctx context.Context, q, pageToken string) (*FileList, error) {
@@ -193,9 +158,11 @@ func (c *Client) doRaw(ctx context.Context, method, endpoint string) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	// The literal placeholder. iron-proxy swaps this for a real SA token
-	// at the wire; we never see, store, or refresh the real one.
-	req.Header.Set("Authorization", "Bearer "+c.cfg.BrokerToken)
+	tok, err := c.cfg.TokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("drive: get access token: %w", err)
+	}
+	tok.SetAuthHeader(req)
 	req.Header.Set("Accept", "application/json, */*")
 
 	resp, err := c.http.Do(req)

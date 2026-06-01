@@ -1,3 +1,4 @@
+{{- $da := .Values.api.driveAuth -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -39,10 +40,20 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+            # The MCP server talks to Google Drive directly (it is a trusted
+            # backend, not an agent workload, so it holds the service-account
+            # credential itself — no iron-proxy). whitelist_doc uses it to
+            # classify a Drive id as a folder or a doc at enqueue time.
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: {{ printf "/etc/philos/gcp-sa/%s" $da.secretKey | quote }}
           envFrom:
             # DATABASE_URL + MCP_BEARER_TOKEN.
             - secretRef:
                 name: api-secrets
+          volumeMounts:
+            - name: gcp-sa
+              mountPath: /etc/philos/gcp-sa
+              readOnly: true
           ports:
             - name: mcp
               containerPort: {{ .Values.api.ports.mcp }}
@@ -60,3 +71,10 @@ spec:
             periodSeconds: 30
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
+      volumes:
+        - name: gcp-sa
+          secret:
+            secretName: {{ $da.secretName | quote }}
+            items:
+              - key: {{ $da.secretKey | quote }}
+                path: {{ $da.secretKey | quote }}

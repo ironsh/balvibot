@@ -12,7 +12,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 )
+
+// testTokenSource hands out a fixed access token, standing in for a real
+// service-account credential.
+var testTokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "test-token"})
 
 type fakeDrive struct {
 	t           *testing.T
@@ -86,14 +91,14 @@ func newTestClient(t *testing.T, f *fakeDrive) *Client {
 	t.Cleanup(srv.Close)
 	c, err := New(Config{
 		BaseURL:     srv.URL,
-		BrokerToken: "iron-proxy-stub-token",
+		TokenSource: testTokenSource,
 		HTTPClient:  srv.Client(),
 	})
 	require.NoError(t, err)
 	return c
 }
 
-func TestPlaceholderHeaderForwardedVerbatim(t *testing.T) {
+func TestAccessTokenSentAsBearer(t *testing.T) {
 	f := newFakeDrive(t)
 	q := fmt.Sprintf("'%s' in parents and trashed = false", "folder-1")
 	f.listResponses[q] = `{"files":[]}`
@@ -102,8 +107,8 @@ func TestPlaceholderHeaderForwardedVerbatim(t *testing.T) {
 	_, err := c.ListFolder(context.Background(), "folder-1", "")
 	require.NoError(t, err)
 	require.Len(t, f.authHeaders, 1)
-	require.Equal(t, "Bearer iron-proxy-stub-token", f.authHeaders[0],
-		"the indexer must forward the stub verbatim; iron-proxy's gcp_auth transform does the swap")
+	require.Equal(t, "Bearer test-token", f.authHeaders[0],
+		"the client sends the token-source access token as the Bearer credential")
 }
 
 func TestListFolderPagination(t *testing.T) {
@@ -157,7 +162,7 @@ func TestExport403IsTypedStatusError(t *testing.T) {
 	require.True(t, IsNotFoundOrForbidden(err))
 }
 
-func TestRequireBrokerToken(t *testing.T) {
+func TestRequireTokenSource(t *testing.T) {
 	_, err := New(Config{BaseURL: "http://x"})
 	require.Error(t, err)
 }
@@ -169,7 +174,7 @@ func TestListEncodesPageToken(t *testing.T) {
 		_, _ = w.Write([]byte(`{"files":[]}`))
 	}))
 	t.Cleanup(srv.Close)
-	c, err := New(Config{BaseURL: srv.URL, BrokerToken: "x", HTTPClient: srv.Client()})
+	c, err := New(Config{BaseURL: srv.URL, TokenSource: testTokenSource, HTTPClient: srv.Client()})
 	require.NoError(t, err)
 	_, err = c.ListFolder(context.Background(), "folder-1", "abc 123/&=")
 	require.NoError(t, err)

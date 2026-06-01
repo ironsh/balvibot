@@ -11,6 +11,7 @@ package actions
 const (
 	ActionAddGrantee      = "add_grantee"
 	ActionAddApprovalUser = "add_approval_user"
+	ActionWhitelistDoc    = "whitelist_doc"
 )
 
 // AddGranteeArgs is the JSON stored in approval_actions.args for ActionAddGrantee.
@@ -24,6 +25,16 @@ type AddGranteeArgs struct {
 type AddApprovalUserArgs struct {
 	Email     string `json:"email"`
 	PublicKey string `json:"ssh_public_key"`
+}
+
+// WhitelistDocArgs is the JSON stored in approval_actions.args for
+// ActionWhitelistDoc. SourceType ("folder" or "doc") is resolved from the Drive
+// object's MIME type by the enqueueing MCP tool, so the executor (which has no
+// Drive access) and the human operator both see the already-classified type.
+type WhitelistDocArgs struct {
+	GranteeID  string `json:"grantee_id"`
+	DriveID    string `json:"drive_id"`
+	SourceType string `json:"source_type"`
 }
 
 // Metadata is the JSON stored in approval_actions.metadata. It carries context

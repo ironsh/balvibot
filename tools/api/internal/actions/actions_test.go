@@ -19,6 +19,7 @@ func TestRegisterWiresKnownActions(t *testing.T) {
 	actions.Register(reg, nil) // handlers aren't invoked here, only registered.
 	require.True(t, reg.Has(actions.ActionAddGrantee))
 	require.True(t, reg.Has(actions.ActionAddApprovalUser))
+	require.True(t, reg.Has(actions.ActionWhitelistDoc))
 }
 
 // TestAddGranteeArgsRoundTrip locks the wire shape shared by the producer
@@ -46,6 +47,20 @@ func TestAddApprovalUserArgsRoundTrip(t *testing.T) {
 	var got actions.AddApprovalUserArgs
 	require.NoError(t, json.Unmarshal(b, &got))
 	require.Equal(t, "op@example.com", got.Email)
+}
+
+// TestWhitelistDocArgsRoundTrip locks the wire shape shared by the producer
+// (MCP tool) and consumer (executor handler).
+func TestWhitelistDocArgsRoundTrip(t *testing.T) {
+	b, err := json.Marshal(actions.WhitelistDocArgs{GranteeID: "acme", DriveID: "1AbC", SourceType: "folder"})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"grantee_id":"acme","drive_id":"1AbC","source_type":"folder"}`, string(b))
+
+	var got actions.WhitelistDocArgs
+	require.NoError(t, json.Unmarshal(b, &got))
+	require.Equal(t, "acme", got.GranteeID)
+	require.Equal(t, "1AbC", got.DriveID)
+	require.Equal(t, "folder", got.SourceType)
 }
 
 // TestMetadataOmitsEmptyFields confirms the request-context metadata serializes

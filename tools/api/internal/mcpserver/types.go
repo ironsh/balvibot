@@ -35,6 +35,16 @@ type AddApprovalUserInput struct {
 	RequestedBy  string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
 }
 
+// WhitelistDocInput requests that a Drive folder or doc be ingested for a
+// grantee (queued for approval). Folder vs doc is auto-detected from the Drive
+// object at approval time, so the caller only supplies the id.
+type WhitelistDocInput struct {
+	GranteeID    string `json:"grantee_id" jsonschema:"Existing grantee id (from list_grantees) to attach this source to."`
+	DriveID      string `json:"drive_id" jsonschema:"Google Drive id of a Google Doc or a folder to ingest. Folders are walked recursively."`
+	SignalNumber string `json:"signal_number,omitempty" jsonschema:"Optional Signal phone number that requested this action."`
+	RequestedBy  string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
+}
+
 // ---------- grantees ----------
 
 type ListGranteesInput struct{}
