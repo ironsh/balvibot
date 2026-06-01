@@ -6,3 +6,6 @@
 
 # Operator-local Helm overrides (may contain PII like phone numbers).
 helm/philanthropy-os/values.local.yaml
+
+# Build output.
+dist/
