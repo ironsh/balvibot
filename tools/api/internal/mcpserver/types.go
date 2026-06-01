@@ -87,6 +87,39 @@ type AuthorizeGranteeEmailInput struct {
 	RequestedBy  string `json:"requested_by,omitempty" jsonschema:"Optional identifier of who/what requested this action."`
 }
 
+// ---------- notes ----------
+
+// CreateNoteInput records a note about a grantee. Unlike the approval-gated
+// tools, this writes immediately and returns the stored note.
+type CreateNoteInput struct {
+	GranteeID    string `json:"grantee_id" jsonschema:"Existing grantee id (from list_grantees) the note is about."`
+	Content      string `json:"content" jsonschema:"The note text to remember about the grantee."`
+	Kind         string `json:"kind,omitempty" jsonschema:"Note kind: one of note, fact, preference, status, contact. Defaults to note."`
+	SupersedesID int64  `json:"supersedes_id,omitempty" jsonschema:"Optional id of an existing note (for the same grantee) that this note replaces. The superseded note is hidden from list_notes by default but kept for history."`
+	SignalNumber string `json:"signal_number,omitempty" jsonschema:"Optional Signal phone number that requested this note."`
+}
+
+type CreateNoteOutput struct {
+	Note *store.Note `json:"note"`
+}
+
+// ListNotesInput lists notes for a grantee, newest first. By default superseded
+// notes are omitted; set include_superseded to see the full history.
+type ListNotesInput struct {
+	GranteeID         string `json:"grantee_id" jsonschema:"Grantee id from list_grantees."`
+	Kind              string `json:"kind,omitempty" jsonschema:"Optional kind filter: note, fact, preference, status, or contact."`
+	Since             string `json:"since,omitempty" jsonschema:"Optional RFC 3339 lower bound on the note's created_at (inclusive)."`
+	Until             string `json:"until,omitempty" jsonschema:"Optional RFC 3339 upper bound on the note's created_at (inclusive)."`
+	IncludeSuperseded bool   `json:"include_superseded,omitempty" jsonschema:"Include notes that have been superseded by a newer note. Defaults to false."`
+	Limit             int    `json:"limit,omitempty" jsonschema:"Max results per page (1-200, default 50)."`
+	Cursor            int64  `json:"cursor,omitempty" jsonschema:"Pagination cursor from a prior call's next_cursor (omit on first call)."`
+}
+
+type ListNotesOutput struct {
+	Notes      []store.Note `json:"notes"`
+	NextCursor int64        `json:"next_cursor,omitempty"`
+}
+
 // ---------- grantees ----------
 
 type ListGranteesInput struct{}

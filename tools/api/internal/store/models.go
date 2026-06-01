@@ -13,10 +13,32 @@ const (
 	SourceTypeFolder = "folder"
 	SourceTypeDoc    = "doc"
 
+	// Note kinds. The default is NoteKindNote; the others let the agent tag a
+	// note with what it captures so reads can be filtered.
+	NoteKindNote       = "note"
+	NoteKindFact       = "fact"
+	NoteKindPreference = "preference"
+	NoteKindStatus     = "status"
+	NoteKindContact    = "contact"
+
 	// UnassignedGrantee is the sentinel id used by the mail query API to
 	// select messages/threads whose grantee_id is NULL.
 	UnassignedGrantee = "_unassigned"
 )
+
+// NoteKinds is the set of valid note kinds, in declaration order. Used to
+// validate input and to document the enum.
+var NoteKinds = []string{NoteKindNote, NoteKindFact, NoteKindPreference, NoteKindStatus, NoteKindContact}
+
+// ValidNoteKind reports whether kind is one of the allowed note kinds.
+func ValidNoteKind(kind string) bool {
+	for _, k := range NoteKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
 
 // Grantee is the single, unified grantee record shared by mail + docs. It
 // merges the gdocs model (grantee_id/display_name/status) with the mail
@@ -164,4 +186,33 @@ type DocSummary struct {
 	HadImages   bool      `json:"had_images"`
 	HadComments bool      `json:"had_comments"`
 	Status      string    `json:"status"`
+}
+
+// ---------- notes ----------
+
+// Note is a free-text note the agent keeps about a grantee. SignalNumber is the
+// Signal phone number that requested it (if any). SupersedesID, when set, points
+// at the note this one replaces. SupersededByID, when set, is the id of a newer
+// note that supersedes this one (computed at read time, not stored).
+type Note struct {
+	ID             int64     `json:"id"`
+	GranteeID      string    `json:"grantee_id"`
+	Kind           string    `json:"kind"`
+	Content        string    `json:"content"`
+	SignalNumber   string    `json:"signal_number,omitempty"`
+	SupersedesID   *int64    `json:"supersedes_id,omitempty"`
+	SupersededByID *int64    `json:"superseded_by_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// NoteFilter narrows a ListNotes query. GranteeID is required; the rest are
+// optional. IncludeSuperseded defaults to false (superseded notes are hidden).
+type NoteFilter struct {
+	GranteeID         string
+	Kind              string
+	Since             *time.Time
+	Until             *time.Time
+	IncludeSuperseded bool
+	Limit             int
+	Cursor            int64
 }
