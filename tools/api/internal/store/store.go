@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -449,11 +450,11 @@ func (s *Store) InsertMessage(ctx context.Context, m *Message) (int64, bool, err
 		RETURNING id
 	`),
 		m.MessageID, m.ThreadID, m.GranteeID, m.Folder, m.UID, m.UIDValidity,
-		nullStr(m.InReplyTo), nullStr(strings.Join(m.References, " ")),
-		m.From.Email, nullStr(m.From.Name),
+		nullStr(cleanText(m.InReplyTo)), nullStr(cleanText(strings.Join(m.References, " "))),
+		m.From.Email, nullStr(cleanText(m.From.Name)),
 		string(to), nullStr(string(cc)),
-		nullStr(m.Subject), m.Date.Unix(),
-		nullStr(m.BodyText), nullStr(m.BodyHTML),
+		nullStr(cleanText(m.Subject)), m.Date.Unix(),
+		nullStr(cleanText(m.BodyText)), nullStr(cleanText(m.BodyHTML)),
 		m.SizeBytes, time.Now().Unix(),
 	).Scan(&msgID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -477,7 +478,7 @@ func (s *Store) InsertMessage(ctx context.Context, m *Message) (int64, bool, err
 		}
 		if _, err := tx.ExecContext(ctx,
 			rebind(`INSERT INTO message_references(message_id, ref) VALUES(?, ?) ON CONFLICT DO NOTHING`),
-			msgID, ref,
+			msgID, cleanText(ref),
 		); err != nil {
 			return 0, false, err
 		}
@@ -489,7 +490,7 @@ func (s *Store) InsertMessage(ctx context.Context, m *Message) (int64, bool, err
 			}
 			if _, err := tx.ExecContext(ctx,
 				rebind(`INSERT INTO message_recipients(message_id, kind, email, name) VALUES(?, ?, ?, ?) ON CONFLICT DO NOTHING`),
-				msgID, kind, strings.ToLower(a.Email), nullStr(a.Name),
+				msgID, kind, cleanText(strings.ToLower(a.Email)), nullStr(cleanText(a.Name)),
 			); err != nil {
 				return err
 			}
@@ -510,7 +511,7 @@ func (s *Store) InsertMessage(ctx context.Context, m *Message) (int64, bool, err
 		if _, err := tx.ExecContext(ctx, rebind(`
 			INSERT INTO attachments(message_id, filename, mime_type, size_bytes, sha256, path)
 			VALUES(?, ?, ?, ?, ?, ?)
-		`), msgID, nullStr(a.Filename), nullStr(a.MimeType), a.SizeBytes, a.SHA256, a.Path); err != nil {
+		`), msgID, nullStr(cleanText(a.Filename)), nullStr(cleanText(a.MimeType)), a.SizeBytes, a.SHA256, a.Path); err != nil {
 			return 0, false, fmt.Errorf("insert attachment: %w", err)
 		}
 	}
@@ -760,6 +761,24 @@ func (s *Store) LastSuccessfulSync(ctx context.Context) (time.Time, error) {
 func nullStr(s string) any {
 	if s == "" {
 		return nil
+	}
+	return s
+}
+
+// cleanText makes a string safe to store in a Postgres text column. Postgres
+// rejects byte sequences that are not valid UTF-8, as well as embedded NUL
+// bytes (even though NUL is valid UTF-8). Email bodies routinely contain
+// mis-decoded charsets or binary parts mislabeled as text, so we coerce
+// invalid sequences to U+FFFD and strip NULs before insert.
+func cleanText(s string) string {
+	if s == "" {
+		return s
+	}
+	if strings.IndexByte(s, 0) >= 0 {
+		s = strings.ReplaceAll(s, "\x00", "")
+	}
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "�")
 	}
 	return s
 }
