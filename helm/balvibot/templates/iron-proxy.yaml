@@ -16,7 +16,7 @@ kind: ConfigMap
 metadata:
   name: iron-proxy-config
   labels:
-    {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
 data:
   proxy.yaml: |
     dns:
@@ -92,7 +92,7 @@ kind: Service
 metadata:
   name: iron-proxy
   labels:
-    {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   type: ClusterIP
   # Pinned: hermes-agent.dnsConfig.nameservers is rendered with this value as
@@ -100,7 +100,7 @@ spec:
   # non-passthrough lookup. Changing it requires re-rolling the hermes pod.
   clusterIP: {{ $ip.clusterIP | quote }}
   selector:
-    {{- include "philos.selectorLabels" (dict "name" "iron-proxy") | nindent 4 }}
+    {{- include "balvibot.selectorLabels" (dict "name" "iron-proxy") | nindent 4 }}
   ports:
     - name: dns-udp
       port: {{ $ip.ports.dns }}
@@ -124,18 +124,18 @@ kind: Deployment
 metadata:
   name: iron-proxy
   labels:
-    {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   replicas: 1
   strategy:
     type: RollingUpdate
   selector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "iron-proxy") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "iron-proxy") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 8 }}
       annotations:
         # Roll the pod when proxy.yaml changes (it's read once at startup).
         checksum/config: {{ toYaml $ip | sha256sum }}

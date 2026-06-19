@@ -4,21 +4,21 @@ kind: Deployment
 metadata:
   name: gdocs-indexer
   labels:
-    {{- include "philos.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "gdocs-indexer") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "gdocs-indexer") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "gdocs-indexer" "partOf" .Values.partOf) | nindent 8 }}
     spec:
       containers:
         - name: gdocs-indexer
-          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}"
-          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}"
+          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
           args: ["sync-gdocs"]
           env:
             {{- range $k, $v := .Values.gdocsIndexer.env }}
@@ -28,14 +28,14 @@ spec:
             # The indexer talks to Google Drive directly with the
             # service-account credential (no iron-proxy).
             - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: {{ printf "/etc/philos/gcp-sa/%s" $da.secretKey | quote }}
+              value: {{ printf "/etc/balvibot/gcp-sa/%s" $da.secretKey | quote }}
           envFrom:
             # DATABASE_URL.
             - secretRef:
                 name: api-secrets
           volumeMounts:
             - name: gcp-sa
-              mountPath: /etc/philos/gcp-sa
+              mountPath: /etc/balvibot/gcp-sa
               readOnly: true
           resources:
             {{- toYaml .Values.gdocsIndexer.resources | nindent 12 }}

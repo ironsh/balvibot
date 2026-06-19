@@ -84,7 +84,7 @@ by the justfile). Bootstrap once from `.env.example`:
 
 ```sh
 cp .env.example .env
-# edit .env, fill in PHILOS_* values
+# edit .env, fill in BALVIBOT_* values
 
 just bootstrap-secrets
 just bootstrap-iron-proxy-ca
@@ -114,9 +114,9 @@ so no `hermes-agent setup` is needed — the pod boots ready. The gateway API is
 reachable at `hermes-agent.balvibot.svc.cluster.local:8642`.
 
 When `hermesAgent.api.enabled` is true (default), a single
-`mcp_servers.philos-api` entry is merged into the rendered config and the api
-MCP URL + bearer token are exposed as `PHILOS_API_MCP_URL` /
-`PHILOS_API_MCP_TOKEN` env vars (resolved by hermes at runtime). That one
+`mcp_servers.balvibot-api` entry is merged into the rendered config and the api
+MCP URL + bearer token are exposed as `BALVIBOT_API_MCP_URL` /
+`BALVIBOT_API_MCP_TOKEN` env vars (resolved by hermes at runtime). That one
 endpoint serves the grantee, mail, and docs tools.
 
 ## Managing grantees
@@ -224,7 +224,7 @@ Signal account (you can also register a fresh number with `signal-cli register`
 ```sh
 POD=$(kubectl -n balvibot get pod -l app.kubernetes.io/name=signal-cli -o name)
 kubectl -n balvibot exec -it "$POD" -- \
-    signal-cli --config /data link -n "philos"
+    signal-cli --config /data link -n "balvibot"
 ```
 
 This prints a `sgnl://linkdevice?...` URI. On the phone that owns the Signal

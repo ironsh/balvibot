@@ -3,7 +3,7 @@ kind: Job
 metadata:
   name: api-migrate
   labels:
-    {{- include "philos.labels" (dict "name" "api-migrate" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "api-migrate" "partOf" .Values.partOf) | nindent 4 }}
   annotations:
     # Run after the chart's resources (incl. the postgres StatefulSet) are
     # applied, so the DB exists. OnFailure + backoffLimit lets the pod retry
@@ -17,13 +17,13 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "api-migrate" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "api-migrate" "partOf" .Values.partOf) | nindent 8 }}
     spec:
       restartPolicy: OnFailure
       containers:
         - name: migrate
-          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}"
-          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}"
+          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
           args: ["migrate", "up"]
           envFrom:
             # DATABASE_URL, plus the optional APPROVAL_BOOTSTRAP_EMAIL /

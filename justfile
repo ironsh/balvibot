@@ -23,10 +23,10 @@ hermes_agent_version := "v2026.5.29.2"
 hermes_agent_image := "balvibot/hermes-agent"
 hermes_agent_tag := hermes_agent_version + "-mention1"
 
-philos_namespace := "balvibot"
-philos_release := "balvibot"
-philos_chart := "helm/balvibot"
-philos_values_local := "helm/balvibot/values.local.yaml"
+balvibot_namespace := "balvibot"
+balvibot_release := "balvibot"
+balvibot_chart := "helm/balvibot"
+balvibot_values_local := "helm/balvibot/values.local.yaml"
 
 # On-node OCI registry that locally-built images are pushed to and that k3s
 # pulls from. The registry listens only on the node's loopback; `_upload`
@@ -34,16 +34,16 @@ philos_values_local := "helm/balvibot/values.local.yaml"
 # the LAN. The push target string (`registry_host:registry_port`) is also the
 # image ref the node resolves, so it must equal `imageRegistry` in
 # values.local.yaml.
-registry_host := env_var_or_default("PHILOS_REGISTRY_HOST", "localhost")
-registry_port := env_var_or_default("PHILOS_REGISTRY_PORT", "5000")
+registry_host := env_var_or_default("BALVIBOT_REGISTRY_HOST", "localhost")
+registry_port := env_var_or_default("BALVIBOT_REGISTRY_PORT", "5000")
 registry := registry_host + ":" + registry_port
 
 default:
     @just --list
 
 # One-shot bring-up: bootstrap secrets + iron-proxy CA, build & push images to
-# the on-node registry, and install the helm chart. Requires PHILOS_K3S_NODE
-# plus all the PHILOS_* secret env vars (see `bootstrap-secrets`), and a registry
+# the on-node registry, and install the helm chart. Requires BALVIBOT_K3S_NODE
+# plus all the BALVIBOT_* secret env vars (see `bootstrap-secrets`), and a registry
 # already provisioned on the node. Each push only ships layers the registry is
 # missing, so re-running after a small code change transfers little. Make sure
 # values.local.yaml sets
@@ -55,9 +55,9 @@ up: bootstrap-secrets bootstrap-iron-proxy-ca ship-protonmail-bridge ship-api sh
 # values.local.yaml is layered on top of the chart defaults when present
 # (gitignored).
 deploy:
-    @overlay=""; [ -f "{{philos_values_local}}" ] && overlay="-f {{philos_values_local}}"; \
-        helm upgrade --install {{philos_release}} {{philos_chart}} \
-            --namespace {{philos_namespace}} --create-namespace $overlay
+    @overlay=""; [ -f "{{balvibot_values_local}}" ] && overlay="-f {{balvibot_values_local}}"; \
+        helm upgrade --install {{balvibot_release}} {{balvibot_chart}} \
+            --namespace {{balvibot_namespace}} --create-namespace $overlay
 
 # Build a docker image pinned to linux/amd64 so it runs on x86_64 k3s nodes
 # regardless of the host architecture (e.g. Apple Silicon). Build context is
@@ -80,12 +80,12 @@ _build image dockerfile *args:
 [private]
 _tunnel:
     @set -eu; \
-        [ -n "${PHILOS_K3S_NODE:-}" ] || { echo "PHILOS_K3S_NODE env var required (e.g. PHILOS_K3S_NODE=user@host)" >&2; exit 1; }; \
+        [ -n "${BALVIBOT_K3S_NODE:-}" ] || { echo "BALVIBOT_K3S_NODE env var required (e.g. BALVIBOT_K3S_NODE=user@host)" >&2; exit 1; }; \
         if nc -z {{registry_host}} {{registry_port}} >/dev/null 2>&1; then \
             exit 0; \
         fi; \
-        echo "opening registry tunnel {{registry}} -> $PHILOS_K3S_NODE (127.0.0.1:{{registry_port}})"; \
-        ssh -fNL {{registry_port}}:127.0.0.1:{{registry_port}} "$PHILOS_K3S_NODE"; \
+        echo "opening registry tunnel {{registry}} -> $BALVIBOT_K3S_NODE (127.0.0.1:{{registry_port}})"; \
+        ssh -fNL {{registry_port}}:127.0.0.1:{{registry_port}} "$BALVIBOT_K3S_NODE"; \
         for _ in $(seq 1 25); do nc -z {{registry_host}} {{registry_port}} >/dev/null 2>&1 && exit 0; sleep 0.2; done; \
         echo "registry tunnel did not come up on {{registry}}" >&2; exit 1
 
@@ -180,65 +180,65 @@ ship-hermes-agent:
 
 # Create/refresh the Kubernetes Secrets for each service from the operator's
 # shell env. Idempotent: re-run after changing values to roll the secret.
-# Required env vars (all PHILOS_-prefixed):
-#   hermes-agent:  PHILOS_API_SERVER_KEY
-#   iron-proxy:    at least one of PHILOS_ANTHROPIC_API_KEY / PHILOS_OPENAI_API_KEY
+# Required env vars (all BALVIBOT_-prefixed):
+#   hermes-agent:  BALVIBOT_API_SERVER_KEY
+#   iron-proxy:    at least one of BALVIBOT_ANTHROPIC_API_KEY / BALVIBOT_OPENAI_API_KEY
 #                  (real LLM keys — hermes itself never sees them)
-#   postgres:      PHILOS_POSTGRES_PASSWORD (URL-safe; goes into DATABASE_URL)
-#   api:           PHILOS_IMAP_USER, PHILOS_IMAP_PASS, PHILOS_API_MCP_TOKEN
-#   api (optional): PHILOS_APPROVAL_BOOTSTRAP_EMAIL + PHILOS_APPROVAL_BOOTSTRAP_PUBKEY
+#   postgres:      BALVIBOT_POSTGRES_PASSWORD (URL-safe; goes into DATABASE_URL)
+#   api:           BALVIBOT_IMAP_USER, BALVIBOT_IMAP_PASS, BALVIBOT_API_MCP_TOKEN
+#   api (optional): BALVIBOT_APPROVAL_BOOTSTRAP_EMAIL + BALVIBOT_APPROVAL_BOOTSTRAP_PUBKEY
 #                  (an authorized_keys line) seed the first approval operator on
 #                  `api migrate up`; the fingerprint is derived from the key.
-#   iron-proxy gcp_auth: PHILOS_GCP_SA_KEY_FILE (path to the SA JSON keyfile;
+#   iron-proxy gcp_auth: BALVIBOT_GCP_SA_KEY_FILE (path to the SA JSON keyfile;
 #                        only iron-proxy sees it, gdocs-indexer never does)
 bootstrap-secrets:
     @set -eu; \
         missing=(); \
-        for v in PHILOS_API_SERVER_KEY PHILOS_POSTGRES_PASSWORD PHILOS_IMAP_USER PHILOS_IMAP_PASS PHILOS_API_MCP_TOKEN PHILOS_GCP_SA_KEY_FILE; do \
+        for v in BALVIBOT_API_SERVER_KEY BALVIBOT_POSTGRES_PASSWORD BALVIBOT_IMAP_USER BALVIBOT_IMAP_PASS BALVIBOT_API_MCP_TOKEN BALVIBOT_GCP_SA_KEY_FILE; do \
             if [ -z "${!v:-}" ]; then missing+=("$v"); fi; \
         done; \
-        if [ -n "${PHILOS_GCP_SA_KEY_FILE:-}" ] && [ ! -f "$PHILOS_GCP_SA_KEY_FILE" ]; then \
-            echo "PHILOS_GCP_SA_KEY_FILE points to non-existent file: $PHILOS_GCP_SA_KEY_FILE" >&2; exit 1; \
+        if [ -n "${BALVIBOT_GCP_SA_KEY_FILE:-}" ] && [ ! -f "$BALVIBOT_GCP_SA_KEY_FILE" ]; then \
+            echo "BALVIBOT_GCP_SA_KEY_FILE points to non-existent file: $BALVIBOT_GCP_SA_KEY_FILE" >&2; exit 1; \
         fi; \
-        if [ -z "${PHILOS_ANTHROPIC_API_KEY:-}" ] && [ -z "${PHILOS_OPENAI_API_KEY:-}" ]; then \
-            missing+=("PHILOS_ANTHROPIC_API_KEY or PHILOS_OPENAI_API_KEY"); \
+        if [ -z "${BALVIBOT_ANTHROPIC_API_KEY:-}" ] && [ -z "${BALVIBOT_OPENAI_API_KEY:-}" ]; then \
+            missing+=("BALVIBOT_ANTHROPIC_API_KEY or BALVIBOT_OPENAI_API_KEY"); \
         fi; \
         if [ "${#missing[@]}" -gt 0 ]; then \
             echo "missing required env vars: ${missing[*]}" >&2; exit 1; \
         fi; \
         iron_args=(); \
-        if [ -n "${PHILOS_ANTHROPIC_API_KEY:-}" ]; then \
-            iron_args+=(--from-literal=REAL_ANTHROPIC_API_KEY="$PHILOS_ANTHROPIC_API_KEY"); \
+        if [ -n "${BALVIBOT_ANTHROPIC_API_KEY:-}" ]; then \
+            iron_args+=(--from-literal=REAL_ANTHROPIC_API_KEY="$BALVIBOT_ANTHROPIC_API_KEY"); \
         fi; \
-        if [ -n "${PHILOS_OPENAI_API_KEY:-}" ]; then \
-            iron_args+=(--from-literal=REAL_OPENAI_API_KEY="$PHILOS_OPENAI_API_KEY"); \
+        if [ -n "${BALVIBOT_OPENAI_API_KEY:-}" ]; then \
+            iron_args+=(--from-literal=REAL_OPENAI_API_KEY="$BALVIBOT_OPENAI_API_KEY"); \
         fi; \
-        kubectl create namespace {{philos_namespace}} --dry-run=client -o yaml | kubectl apply -f -; \
+        kubectl create namespace {{balvibot_namespace}} --dry-run=client -o yaml | kubectl apply -f -; \
         kubectl create secret generic hermes-agent-secrets \
-            --namespace={{philos_namespace}} \
-            --from-literal=API_SERVER_KEY="$PHILOS_API_SERVER_KEY" \
+            --namespace={{balvibot_namespace}} \
+            --from-literal=API_SERVER_KEY="$BALVIBOT_API_SERVER_KEY" \
             --dry-run=client -o yaml | kubectl apply -f -; \
         kubectl create secret generic iron-proxy-secrets \
-            --namespace={{philos_namespace}} \
+            --namespace={{balvibot_namespace}} \
             "${iron_args[@]}" \
             --dry-run=client -o yaml | kubectl apply -f -; \
         kubectl create secret generic postgres-secrets \
-            --namespace={{philos_namespace}} \
-            --from-literal=POSTGRES_PASSWORD="$PHILOS_POSTGRES_PASSWORD" \
+            --namespace={{balvibot_namespace}} \
+            --from-literal=POSTGRES_PASSWORD="$BALVIBOT_POSTGRES_PASSWORD" \
             --dry-run=client -o yaml | kubectl apply -f -; \
-        database_url="postgres://philos:${PHILOS_POSTGRES_PASSWORD}@postgres.{{philos_namespace}}.svc.cluster.local:5432/philos?sslmode=disable"; \
+        database_url="postgres://balvibot:${BALVIBOT_POSTGRES_PASSWORD}@postgres.{{balvibot_namespace}}.svc.cluster.local:5432/balvibot?sslmode=disable"; \
         kubectl create secret generic api-secrets \
-            --namespace={{philos_namespace}} \
+            --namespace={{balvibot_namespace}} \
             --from-literal=DATABASE_URL="$database_url" \
-            --from-literal=MCP_BEARER_TOKEN="$PHILOS_API_MCP_TOKEN" \
-            --from-literal=APPROVAL_BOOTSTRAP_EMAIL="${PHILOS_APPROVAL_BOOTSTRAP_EMAIL:-}" \
-            --from-literal=APPROVAL_BOOTSTRAP_PUBKEY="${PHILOS_APPROVAL_BOOTSTRAP_PUBKEY:-}" \
-            --from-literal=IMAP_USER="$PHILOS_IMAP_USER" \
-            --from-literal=IMAP_PASS="$PHILOS_IMAP_PASS" \
+            --from-literal=MCP_BEARER_TOKEN="$BALVIBOT_API_MCP_TOKEN" \
+            --from-literal=APPROVAL_BOOTSTRAP_EMAIL="${BALVIBOT_APPROVAL_BOOTSTRAP_EMAIL:-}" \
+            --from-literal=APPROVAL_BOOTSTRAP_PUBKEY="${BALVIBOT_APPROVAL_BOOTSTRAP_PUBKEY:-}" \
+            --from-literal=IMAP_USER="$BALVIBOT_IMAP_USER" \
+            --from-literal=IMAP_PASS="$BALVIBOT_IMAP_PASS" \
             --dry-run=client -o yaml | kubectl apply -f -; \
         kubectl create secret generic gdrive-sa \
-            --namespace={{philos_namespace}} \
-            --from-file=key.json="$PHILOS_GCP_SA_KEY_FILE" \
+            --namespace={{balvibot_namespace}} \
+            --from-file=key.json="$BALVIBOT_GCP_SA_KEY_FILE" \
             --dry-run=client -o yaml | kubectl apply -f -
 
 # Generate the iron-proxy CA keypair on first run and store it in the
@@ -247,8 +247,8 @@ bootstrap-secrets:
 # every workload to re-trust a new cert). To rotate, delete the Secret first.
 bootstrap-iron-proxy-ca:
     @set -eu; \
-        kubectl create namespace {{philos_namespace}} --dry-run=client -o yaml | kubectl apply -f -; \
-        if kubectl -n {{philos_namespace}} get secret iron-proxy-ca >/dev/null 2>&1; then \
+        kubectl create namespace {{balvibot_namespace}} --dry-run=client -o yaml | kubectl apply -f -; \
+        if kubectl -n {{balvibot_namespace}} get secret iron-proxy-ca >/dev/null 2>&1; then \
             echo "iron-proxy-ca secret already exists; reusing"; \
             exit 0; \
         fi; \
@@ -261,7 +261,7 @@ bootstrap-iron-proxy-ca:
             -addext "basicConstraints=critical,CA:TRUE" \
             -addext "keyUsage=critical,keyCertSign" \
             -out "$tmpdir/ca.crt" >/dev/null 2>&1; \
-        kubectl -n {{philos_namespace}} create secret generic iron-proxy-ca \
+        kubectl -n {{balvibot_namespace}} create secret generic iron-proxy-ca \
             --from-file=ca.crt="$tmpdir/ca.crt" \
             --from-file=ca.key="$tmpdir/ca.key"; \
         echo "iron-proxy-ca created (CN=balvibot iron-proxy CA, 10y)"

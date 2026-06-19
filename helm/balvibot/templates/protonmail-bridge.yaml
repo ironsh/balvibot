@@ -3,7 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: protonmail-bridge-data
   labels:
-    {{- include "philos.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -16,11 +16,11 @@ kind: Service
 metadata:
   name: protonmail-bridge
   labels:
-    {{- include "philos.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    {{- include "philos.selectorLabels" (dict "name" "protonmail-bridge") | nindent 4 }}
+    {{- include "balvibot.selectorLabels" (dict "name" "protonmail-bridge") | nindent 4 }}
   ports:
     - name: smtp
       port: {{ .Values.protonmailBridge.ports.smtp }}
@@ -34,7 +34,7 @@ kind: Deployment
 metadata:
   name: protonmail-bridge
   labels:
-    {{- include "philos.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   replicas: 1
   strategy:
@@ -43,16 +43,16 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "protonmail-bridge") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "protonmail-bridge") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "protonmail-bridge" "partOf" .Values.partOf) | nindent 8 }}
     spec:
       containers:
         - name: protonmail-bridge
-          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.protonmailBridge.image) }}"
-          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.protonmailBridge.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.protonmailBridge.image) }}"
+          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.protonmailBridge.image "default" $.Values.imagePullPolicy) }}
           # stdin/tty keep the container ready for the interactive `init`/`login`
           # flow (`kubectl exec ... -- /bin/bash`) described in the project docs.
           stdin: true

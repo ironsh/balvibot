@@ -17,11 +17,11 @@ kind: NetworkPolicy
 metadata:
   name: hermes-agent-egress
   labels:
-    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "hermes-agent") | nindent 6 }}
   policyTypes:
     - Egress
   egress:
@@ -30,7 +30,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "iron-proxy") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "iron-proxy") | nindent 14 }}
       ports:
         - protocol: UDP
           port: {{ $ip.ports.dns }}
@@ -44,7 +44,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "api") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "api") | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ .Values.api.ports.mcp }}
@@ -52,7 +52,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "signal-cli") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "signal-cli") | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ .Values.signalCli.ports.http }}
@@ -62,11 +62,11 @@ kind: NetworkPolicy
 metadata:
   name: iron-proxy-ingress
   labels:
-    {{- include "philos.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "iron-proxy" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "iron-proxy") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "iron-proxy") | nindent 6 }}
   policyTypes:
     - Ingress
   ingress:
@@ -76,7 +76,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "hermes-agent") | nindent 14 }}
       ports:
         - protocol: UDP
           port: {{ $ip.ports.dns }}
@@ -92,11 +92,11 @@ kind: NetworkPolicy
 metadata:
   name: api-ingress
   labels:
-    {{- include "philos.labels" (dict "name" "api" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "api" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "api") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "api") | nindent 6 }}
   policyTypes:
     - Ingress
   ingress:
@@ -104,7 +104,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "hermes-agent") | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ .Values.api.ports.mcp }}
@@ -114,11 +114,11 @@ kind: NetworkPolicy
 metadata:
   name: postgres-ingress
   labels:
-    {{- include "philos.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "postgres") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "postgres") | nindent 6 }}
   policyTypes:
     - Ingress
   ingress:
@@ -127,19 +127,19 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "api") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "api") | nindent 14 }}
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "approval") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "approval") | nindent 14 }}
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "mail-indexer") | nindent 14 }}
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "gdocs-indexer") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "gdocs-indexer") | nindent 14 }}
         - podSelector:
             matchLabels:
-              {{- include "philos.selectorLabels" (dict "name" "api-migrate") | nindent 14 }}
+              {{- include "balvibot.selectorLabels" (dict "name" "api-migrate") | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ .Values.postgres.port }}

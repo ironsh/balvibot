@@ -3,13 +3,13 @@ kind: Service
 metadata:
   name: postgres
   labels:
-    {{- include "philos.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   # Headless service: gives the StatefulSet pod a stable DNS name
   # (postgres.<ns>.svc.cluster.local). The single replica is reached directly.
   clusterIP: None
   selector:
-    {{- include "philos.selectorLabels" (dict "name" "postgres") | nindent 4 }}
+    {{- include "balvibot.selectorLabels" (dict "name" "postgres") | nindent 4 }}
   ports:
     - name: postgres
       port: {{ .Values.postgres.port }}
@@ -20,17 +20,17 @@ kind: StatefulSet
 metadata:
   name: postgres
   labels:
-    {{- include "philos.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   serviceName: postgres
   replicas: 1
   selector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "postgres") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "postgres") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "postgres" "partOf" .Values.partOf) | nindent 8 }}
     spec:
       containers:
         - name: postgres
