@@ -3,30 +3,30 @@ set dotenv-load := true
 
 # Pinned upstream proton-bridge git ref baked into the local image.
 protonmail_bridge_version := "v3.19.0"
-protonmail_bridge_image := "philanthropy-os/protonmail-bridge"
+protonmail_bridge_image := "balvibot/protonmail-bridge"
 protonmail_bridge_tag := protonmail_bridge_version
 
-api_image := "philanthropy-os/api"
+api_image := "balvibot/api"
 api_tag := "0.1.0"
 
 signal_cli_version := "0.14.3"
-signal_cli_image := "philanthropy-os/signal-cli"
+signal_cli_image := "balvibot/signal-cli"
 signal_cli_tag := signal_cli_version
 
-hermes_skills_image := "philanthropy-os/hermes-skills"
+hermes_skills_image := "balvibot/hermes-skills"
 hermes_skills_tag := "0.2.0"
 
 # Upstream hermes-agent release the custom image is built on. The local tag
 # encodes that base plus the require_mention patch (#36088) so a base bump or a
 # patch change rolls the pinned tag in values.yaml.
 hermes_agent_version := "v2026.5.29.2"
-hermes_agent_image := "philanthropy-os/hermes-agent"
+hermes_agent_image := "balvibot/hermes-agent"
 hermes_agent_tag := hermes_agent_version + "-mention1"
 
-philos_namespace := "philanthropy-os"
-philos_release := "philanthropy-os"
-philos_chart := "helm/philanthropy-os"
-philos_values_local := "helm/philanthropy-os/values.local.yaml"
+philos_namespace := "balvibot"
+philos_release := "balvibot"
+philos_chart := "helm/balvibot"
+philos_values_local := "helm/balvibot/values.local.yaml"
 
 # On-node OCI registry that locally-built images are pushed to and that k3s
 # pulls from. The registry listens only on the node's loopback; `_upload`
@@ -257,11 +257,11 @@ bootstrap-iron-proxy-ca:
         openssl genrsa -out "$tmpdir/ca.key" 4096 >/dev/null 2>&1; \
         openssl req -x509 -new -nodes \
             -key "$tmpdir/ca.key" -sha256 -days 3650 \
-            -subj "/CN=philanthropy-os iron-proxy CA" \
+            -subj "/CN=balvibot iron-proxy CA" \
             -addext "basicConstraints=critical,CA:TRUE" \
             -addext "keyUsage=critical,keyCertSign" \
             -out "$tmpdir/ca.crt" >/dev/null 2>&1; \
         kubectl -n {{philos_namespace}} create secret generic iron-proxy-ca \
             --from-file=ca.crt="$tmpdir/ca.crt" \
             --from-file=ca.key="$tmpdir/ca.key"; \
-        echo "iron-proxy-ca created (CN=philanthropy-os iron-proxy CA, 10y)"
+        echo "iron-proxy-ca created (CN=balvibot iron-proxy CA, 10y)"

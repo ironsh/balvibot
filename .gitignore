@@ -5,7 +5,7 @@
 **/grantees.json
 
 # Operator-local Helm overrides (may contain PII like phone numbers).
-helm/philanthropy-os/values.local.yaml
+helm/balvibot/values.local.yaml
 
 # Build output.
 dist/
