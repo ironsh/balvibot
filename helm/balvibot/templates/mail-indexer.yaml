@@ -3,7 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: mail-indexer-data
   labels:
-    {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -18,7 +18,7 @@ kind: Deployment
 metadata:
   name: mail-indexer
   labels:
-    {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   replicas: 1
   strategy:
@@ -27,20 +27,20 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "mail-indexer") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "mail-indexer") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "mail-indexer" "partOf" .Values.partOf) | nindent 8 }}
     spec:
       containers:
         - name: mail-indexer
-          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}"
-          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.api.image) }}"
+          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.api.image "default" $.Values.imagePullPolicy) }}
           args: ["index-mail"]
           env:
             - name: IMAP_ADDR
-              value: {{ include "philos.protonmailBridge.imapAddr" . | quote }}
+              value: {{ include "balvibot.protonmailBridge.imapAddr" . | quote }}
             {{- range $k, $v := .Values.mailIndexer.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

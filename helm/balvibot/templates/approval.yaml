@@ -3,11 +3,11 @@ kind: Service
 metadata:
   name: approval
   labels:
-    {{- include "philos.labels" (dict "name" "approval" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "approval" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    {{- include "philos.selectorLabels" (dict "name" "approval") | nindent 4 }}
+    {{- include "balvibot.selectorLabels" (dict "name" "approval") | nindent 4 }}
   ports:
     - name: approval
       port: {{ .Values.approval.ports.approval }}
@@ -18,21 +18,21 @@ kind: Deployment
 metadata:
   name: approval
   labels:
-    {{- include "philos.labels" (dict "name" "approval" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "approval" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "approval") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "approval") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "approval" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "approval" "partOf" .Values.partOf) | nindent 8 }}
     spec:
       containers:
         - name: approval
-          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.approval.image) }}"
-          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.approval.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.approval.image) }}"
+          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.approval.image "default" $.Values.imagePullPolicy) }}
           args: ["approve-serve"]
           env:
             - name: APPROVAL_BIND_ADDR

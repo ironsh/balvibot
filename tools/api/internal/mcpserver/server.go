@@ -33,7 +33,7 @@ type DriveLookup interface {
 }
 
 const (
-	serverName    = "philos-api"
+	serverName    = "balvibot-api"
 	serverVersion = "0.1.0"
 )
 
@@ -117,7 +117,7 @@ func bearerAuth(token string, next http.Handler) http.Handler {
 		}
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if got == "" || subtle.ConstantTimeCompare([]byte(got), want) != 1 {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="philos-api"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="balvibot-api"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

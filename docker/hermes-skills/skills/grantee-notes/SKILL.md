@@ -1,6 +1,6 @@
 ---
 name: grantee-notes
-description: Remember and recall durable facts about a grantee — preferences, status, contacts, and ad-hoc notes — using the philos-api notes tools. Use whenever the team asks you to remember, note, jot down, track, or save something about a named grantee ("remember that Acme prefers email", "note that Beta is in diligence", "what do we know about Jane?", "what have I told you about Acme?"), or to recall, update, or correct a previously saved note. Reads and writes the philos-api MCP server.
+description: Remember and recall durable facts about a grantee — preferences, status, contacts, and ad-hoc notes — using the balvibot-api notes tools. Use whenever the team asks you to remember, note, jot down, track, or save something about a named grantee ("remember that Acme prefers email", "note that Beta is in diligence", "what do we know about Jane?", "what have I told you about Acme?"), or to recall, update, or correct a previously saved note. Reads and writes the balvibot-api MCP server.
 license: Proprietary
 metadata:
   version: "0.1.0"
@@ -10,7 +10,7 @@ metadata:
 # grantee-notes
 
 Durable, agent-managed memory about a grantee. When the team tells you
-something worth keeping, save it as a note on the `philos-api` MCP server so you
+something worth keeping, save it as a note on the `balvibot-api` MCP server so you
 (or a teammate) can recall it later. When they ask what you know, read it back.
 
 Notes are written directly: unlike `add_grantee` or `whitelist_doc`, saving a
@@ -30,8 +30,8 @@ tools. Notes are for things a human tells you that aren't already in the corpus.
 
 ## Tools
 
-- `philos-api.list_grantees` — resolve a name to a `grantee_id`.
-- `philos-api.create_note` — write a note. Inputs:
+- `balvibot-api.list_grantees` — resolve a name to a `grantee_id`.
+- `balvibot-api.create_note` — write a note. Inputs:
   - `grantee_id` (required)
   - `content` (required): the text to remember.
   - `kind` (optional): one of `note`, `fact`, `preference`, `status`,
@@ -39,7 +39,7 @@ tools. Notes are for things a human tells you that aren't already in the corpus.
   - `supersedes_id` (optional): id of a note this one replaces.
   - `signal_number` (optional): pass the requester's Signal number when the
     request came from a Signal conversation and you have it.
-- `philos-api.list_notes` — read notes, newest first. Inputs: `grantee_id`
+- `balvibot-api.list_notes` — read notes, newest first. Inputs: `grantee_id`
   (required), `kind`, `since`/`until` (RFC 3339 bounds on when the note was
   written), `include_superseded` (default false), `limit`, `cursor`.
 

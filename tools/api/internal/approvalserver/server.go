@@ -1,7 +1,7 @@
 // Package approvalserver runs the approval service: a small REST API the
 // offline balvi-approve CLI uses to list and approve queued actions, plus the
 // executor that dispatches an action once its approval is verified. Actions are
-// enqueued elsewhere (the philos-api MCP server writes them to the DB);
+// enqueued elsewhere (the balvibot-api MCP server writes them to the DB);
 // approvals are authenticated by SSH signature.
 package approvalserver
 

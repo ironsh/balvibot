@@ -1,8 +1,8 @@
 {{- $config := deepCopy .Values.hermesAgent.config -}}
 {{- if .Values.hermesAgent.api.enabled -}}
-{{-   $mcp := dict "philos-api" (dict
-        "url" "${PHILOS_API_MCP_URL}"
-        "headers" (dict "Authorization" "Bearer ${PHILOS_API_MCP_TOKEN}")) -}}
+{{-   $mcp := dict "balvibot-api" (dict
+        "url" "${BALVIBOT_API_MCP_URL}"
+        "headers" (dict "Authorization" "Bearer ${BALVIBOT_API_MCP_TOKEN}")) -}}
 {{-   $existing := default dict $config.mcp_servers -}}
 {{-   $_ := set $config "mcp_servers" (merge $existing $mcp) -}}
 {{- end -}}
@@ -14,7 +14,7 @@ kind: ConfigMap
 metadata:
   name: hermes-agent-config
   labels:
-    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
 data:
   # Written to /opt/data/config.yaml verbatim on every pod start by the
   # render-config init container. `${VAR}` placeholders are resolved by hermes
@@ -31,7 +31,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: hermes-agent-data
   labels:
-    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -45,11 +45,11 @@ kind: Service
 metadata:
   name: hermes-agent
   labels:
-    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 4 }}
+    {{- include "balvibot.selectorLabels" (dict "name" "hermes-agent") | nindent 4 }}
   ports:
     - name: gateway
       port: {{ .Values.hermesAgent.ports.gateway }}
@@ -71,11 +71,11 @@ kind: Service
 metadata:
   name: hermes-agent-dashboard
   labels:
-    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" $.Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "hermes-agent" "partOf" $.Values.partOf) | nindent 4 }}
 spec:
   type: NodePort
   selector:
-    {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 4 }}
+    {{- include "balvibot.selectorLabels" (dict "name" "hermes-agent") | nindent 4 }}
   ports:
     - name: dashboard
       port: {{ $.Values.hermesAgent.ports.dashboard }}
@@ -89,7 +89,7 @@ kind: Deployment
 metadata:
   name: hermes-agent
   labels:
-    {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   replicas: 1
   strategy:
@@ -98,11 +98,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "hermes-agent") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "hermes-agent") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "hermes-agent" "partOf" .Values.partOf) | nindent 8 }}
       annotations:
         # Roll pods when the rendered config, SOUL.md, or ironProxy values
         # change. (The skills bundle rolls implicitly via its image tag; the
@@ -124,8 +124,8 @@ spec:
       # any host except those iron-proxy explicitly allowlists.
       #
       # ndots:1 (not the kube default of 5) because every in-cluster URL we
-      # hand hermes is already a FQDN (see philos.mailIndexer.mcpUrl /
-      # philos.signalCli.httpUrl helpers). With ndots:5, glibc walks the
+      # hand hermes is already a FQDN (see balvibot.mailIndexer.mcpUrl /
+      # balvibot.signalCli.httpUrl helpers). With ndots:5, glibc walks the
       # search list before trying the absolute name, producing a cascade of
       # noisy passthrough-NXDOMAIN warnings in iron-proxy for queries like
       # `signal-cli.balvibot.svc.cluster.local.cluster.local`. ndots:1
@@ -166,8 +166,8 @@ spec:
         # The chart owns that category subtree; user/agent-authored skills in
         # other categories on the PVC remain writable.
         - name: init-skills
-          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" $skills.image) }}"
-          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" $skills.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" $skills.image) }}"
+          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" $skills.image "default" $.Values.imagePullPolicy) }}
           command:
             - sh
             - -euc
@@ -178,8 +178,8 @@ spec:
         {{- end }}
       containers:
         - name: hermes-agent
-          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.hermesAgent.image) }}"
-          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.hermesAgent.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.hermesAgent.image) }}"
+          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.hermesAgent.image "default" $.Values.imagePullPolicy) }}
           args: ["gateway", "run"]
           ports:
             - name: gateway
@@ -192,9 +192,9 @@ spec:
               value: {{ $v | quote }}
             {{- end }}
             {{- if .Values.hermesAgent.api.enabled }}
-            - name: PHILOS_API_MCP_URL
-              value: {{ include "philos.api.mcpUrl" . | quote }}
-            - name: PHILOS_API_MCP_TOKEN
+            - name: BALVIBOT_API_MCP_URL
+              value: {{ include "balvibot.api.mcpUrl" . | quote }}
+            - name: BALVIBOT_API_MCP_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: api-secrets
@@ -202,7 +202,7 @@ spec:
             {{- end }}
             {{- if .Values.hermesAgent.signal.account }}
             - name: SIGNAL_HTTP_URL
-              value: {{ include "philos.signalCli.httpUrl" . | quote }}
+              value: {{ include "balvibot.signalCli.httpUrl" . | quote }}
             - name: SIGNAL_ACCOUNT
               value: {{ .Values.hermesAgent.signal.account | quote }}
             - name: SIGNAL_REQUIRE_MENTION

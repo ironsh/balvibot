@@ -1,6 +1,6 @@
 ---
 name: grantee-status
-description: Summarize a single grantee's recent activity as a short bulleted status — what they're waiting on us for, notable items, and what the most recent threads were about. Always reloads the grantee's latest emails, documents, and notes before summarizing. Use whenever the team asks for the status, state, or recent activity of one named grantee, including phrasings like "where are we with X", "what's going on with X", "status on X", "summarize comms with X", "check on X", "grantee status for X", or just "X status". Pulls data from the philos-api MCP server.
+description: Summarize a single grantee's recent activity as a short bulleted status — what they're waiting on us for, notable items, and what the most recent threads were about. Always reloads the grantee's latest emails, documents, and notes before summarizing. Use whenever the team asks for the status, state, or recent activity of one named grantee, including phrasings like "where are we with X", "what's going on with X", "status on X", "summarize comms with X", "check on X", "grantee status for X", or just "X status". Pulls data from the balvibot-api MCP server.
 license: Proprietary
 metadata:
   version: "0.3.0"
@@ -10,7 +10,7 @@ metadata:
 # grantee-status
 
 Given a grantee's name (or partial name), reload their latest emails, documents,
-and notes from the `philos-api` MCP server and return a short bulleted status
+and notes from the `balvibot-api` MCP server and return a short bulleted status
 report. Always pull all three sources fresh on every run — never rely on what you
 saw in an earlier turn, since any of them may have changed since.
 
@@ -37,7 +37,7 @@ notes each time, even if you pulled them earlier in the conversation — they ma
 have changed.
 
 1. **Resolve the grantee.**
-   - Call `philos-api.list_grantees`.
+   - Call `balvibot-api.list_grantees`.
    - Match `name` against each grantee's `name` and `emails`
      (case-insensitive substring). If exactly one matches, use it.
    - If zero match, report that and stop. Suggest the closest names.
@@ -47,11 +47,11 @@ have changed.
 2. **Reload the latest emails.**
    - Compute `since` if not provided. Example: if today is `2026-05-21`, 90
      days ago is `2026-02-20T00:00:00Z`.
-   - Call `philos-api.list_threads_for_grantee` with `grantee_id` from
+   - Call `balvibot-api.list_threads_for_grantee` with `grantee_id` from
      step 1, the computed `since`, and `limit: 50`.
    - Sort by `last_seen_at` descending. Keep the top `limit` (default 10)
      for deep reads.
-   - For each kept thread, call `philos-api.get_thread` to get the full
+   - For each kept thread, call `balvibot-api.get_thread` to get the full
      message list. Read subjects, participants, dates, and body snippets.
    - Identify threads whose latest message is from the grantee (they sent
      the last reply) — these are what they're **waiting on us** for.
@@ -59,20 +59,20 @@ have changed.
      intros, escalations.
 
 3. **Reload the latest documents.**
-   - Call `philos-api.list_documents_for_grantee` with the `grantee_id`.
+   - Call `balvibot-api.list_documents_for_grantee` with the `grantee_id`.
      This returns the freshest set of indexed docs with their titles and
      modified/sync times.
    - Surface docs that are new or recently modified within the window
      (compare `modified` against `since`). For those, use
-     `philos-api.get_document_metadata` for a cheap relevance check, and
-     `philos-api.get_document_for_grantee` to read the markdown only when a
+     `balvibot-api.get_document_metadata` for a cheap relevance check, and
+     `balvibot-api.get_document_for_grantee` to read the markdown only when a
      doc looks materially relevant to the status (a new proposal, report,
      budget, or agreement).
    - You don't need to read every doc — the goal is to catch what's changed,
      not to re-summarize the whole corpus.
 
 4. **Reload the latest notes.**
-   - Call `philos-api.list_notes` with the `grantee_id` to get the
+   - Call `balvibot-api.list_notes` with the `grantee_id` to get the
      newest-first notes (preferences, status, contacts, facts). These are
      things the team told you that may not be in the email or doc corpus.
    - Use them to frame the status: a saved `status` note or `preference`

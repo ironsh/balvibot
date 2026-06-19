@@ -31,7 +31,7 @@ protonmailBridge:
 # In-cluster Postgres: the single source of truth for grantees, mail, and docs.
 # All three api workloads (api/mail-indexer/gdocs-indexer) plus the migrate Job
 # connect to it. POSTGRES_PASSWORD comes from the postgres-secrets Secret built
-# by `just bootstrap-secrets` (PHILOS_POSTGRES_PASSWORD); DATABASE_URL (built
+# by `just bootstrap-secrets` (BALVIBOT_POSTGRES_PASSWORD); DATABASE_URL (built
 # from the same password) lives in api-secrets.
 postgres:
   image:
@@ -39,10 +39,10 @@ postgres:
     tag: "16-alpine"
     pullPolicy: IfNotPresent
   port: 5432
-  db: philos
+  db: balvibot
   # The official image makes POSTGRES_USER a superuser, which the init
   # migration needs for `CREATE EXTENSION citext`.
-  user: philos
+  user: balvibot
   storage: 10Gi
   resources:
     requests:
@@ -68,7 +68,7 @@ api:
   # to Drive directly: the MCP server (whitelist_doc's folder-vs-doc
   # classification) and the gdocs indexer. They are trusted backends, so they
   # hold the key and call Drive directly — no iron-proxy. The Secret is
-  # provisioned by `just bootstrap-secrets` from PHILOS_GCP_SA_KEY_FILE.
+  # provisioned by `just bootstrap-secrets` from BALVIBOT_GCP_SA_KEY_FILE.
   driveAuth:
     secretName: gdrive-sa
     secretKey: key.json
@@ -237,9 +237,9 @@ hermesAgent:
     model:
       provider: anthropic
       default: claude-opus-4-7
-  # api MCP integration. When enabled, an mcp_servers.philos-api entry is
-  # merged into the rendered config.yaml, and PHILOS_API_MCP_URL /
-  # PHILOS_API_MCP_TOKEN are injected so hermes resolves them at runtime. This
+  # api MCP integration. When enabled, an mcp_servers.balvibot-api entry is
+  # merged into the rendered config.yaml, and BALVIBOT_API_MCP_URL /
+  # BALVIBOT_API_MCP_TOKEN are injected so hermes resolves them at runtime. This
   # single endpoint exposes all grantee + mail + docs tools.
   api:
     enabled: true

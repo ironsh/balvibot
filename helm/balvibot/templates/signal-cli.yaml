@@ -3,7 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: signal-cli-data
   labels:
-    {{- include "philos.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -17,11 +17,11 @@ kind: Service
 metadata:
   name: signal-cli
   labels:
-    {{- include "philos.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    {{- include "philos.selectorLabels" (dict "name" "signal-cli") | nindent 4 }}
+    {{- include "balvibot.selectorLabels" (dict "name" "signal-cli") | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.signalCli.ports.http }}
@@ -32,7 +32,7 @@ kind: Deployment
 metadata:
   name: signal-cli
   labels:
-    {{- include "philos.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
+    {{- include "balvibot.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 4 }}
 spec:
   replicas: 1
   strategy:
@@ -41,16 +41,16 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "philos.selectorLabels" (dict "name" "signal-cli") | nindent 6 }}
+      {{- include "balvibot.selectorLabels" (dict "name" "signal-cli") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "philos.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 8 }}
+        {{- include "balvibot.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 8 }}
     spec:
       containers:
         - name: signal-cli
-          image: "{{ include "philos.image" (dict "registry" $.Values.imageRegistry "image" .Values.signalCli.image) }}"
-          imagePullPolicy: {{ include "philos.imagePullPolicy" (dict "image" .Values.signalCli.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.signalCli.image) }}"
+          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.signalCli.image "default" $.Values.imagePullPolicy) }}
           # stdin/tty keep the container ready for interactive account flows
           # (`kubectl exec ... -- signal-cli register/verify`) before the
           # daemon has any registered numbers.
