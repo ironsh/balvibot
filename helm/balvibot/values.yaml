@@ -1,4 +1,4 @@
-partOf: philanthropy-os
+partOf: balvibot
 
 # Registry prefix prepended to every locally-built image (api, protonmail-bridge,
 # signal-cli, hermes-agent, hermes-skills). Empty here so the committed chart
@@ -21,7 +21,7 @@ imagePullPolicy: Always
 
 protonmailBridge:
   image:
-    repository: philanthropy-os/protonmail-bridge
+    repository: balvibot/protonmail-bridge
     tag: v3.19.0
   storage: 100Mi
   ports:
@@ -56,7 +56,7 @@ postgres:
 # subcommands (serve / index-mail / sync-gdocs) plus a migrate Job.
 api:
   image:
-    repository: philanthropy-os/api
+    repository: balvibot/api
     tag: 0.1.0
   ports:
     mcp: 8080
@@ -92,7 +92,7 @@ api:
 # APPROVAL_BEARER_TOKEN come from api-secrets.
 approval:
   image:
-    repository: philanthropy-os/api
+    repository: balvibot/api
     tag: 0.1.0
   ports:
     approval: 8090
@@ -187,7 +187,7 @@ ironProxy:
 
 signalCli:
   image:
-    repository: philanthropy-os/signal-cli
+    repository: balvibot/signal-cli
     tag: 0.14.3
   storage: 1Gi
   ports:
@@ -206,7 +206,7 @@ hermesAgent:
   # `just ship-hermes-agent` (see docker/hermes-agent/). Keep this tag in sync
   # with hermes_agent_tag in the justfile.
   image:
-    repository: philanthropy-os/hermes-agent
+    repository: balvibot/hermes-agent
     tag: v2026.5.29.2-mention1
   # RuntimeClass for the hermes pod. kata-deploy creates one RuntimeClass per
   # shim it installs (e.g. kata-qemu, kata-clh, kata-fc). Set empty to use the
@@ -252,7 +252,7 @@ hermesAgent:
     enabled: true
     category: philanthropy
     image:
-      repository: philanthropy-os/hermes-skills
+      repository: balvibot/hermes-skills
       tag: 0.2.0
   # Signal integration. Leave `account` empty to disable: when unset, no
   # SIGNAL_* env vars are emitted and hermes runs without a Signal dependency.

@@ -1,6 +1,0 @@
-apiVersion: v2
-name: philanthropy-os
-description: Helm chart for philanthropy-os services (protonmail-bridge, mail-indexer, hermes-agent).
-type: application
-version: 0.1.0
-appVersion: "0.1.0"

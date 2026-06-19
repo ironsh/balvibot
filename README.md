@@ -1,6 +1,6 @@
-# philanthropy-os (Helm)
+# balvibot (Helm)
 
-Kubernetes manifests for the philanthropy-os services, packaged as a Helm chart.
+Kubernetes manifests for the balvibot services, packaged as a Helm chart.
 
 ## Services
 
@@ -39,9 +39,9 @@ Kubernetes manifests for the philanthropy-os services, packaged as a Helm chart.
 ## Layout
 
 ```
-helm/philanthropy-os/Chart.yaml      Chart metadata
-helm/philanthropy-os/values.yaml     Tunables (image tags, env, resources)
-helm/philanthropy-os/templates/      One file per service
+helm/balvibot/Chart.yaml      Chart metadata
+helm/balvibot/values.yaml     Tunables (image tags, env, resources)
+helm/balvibot/templates/      One file per service
 ```
 
 Each service template renders its Deployment, Service (where applicable), and
@@ -65,8 +65,8 @@ Install/upgrade the chart:
 just deploy
 ```
 
-This runs `helm upgrade --install philanthropy-os helm/philanthropy-os
---namespace philanthropy-os --create-namespace`. On each install/upgrade the
+This runs `helm upgrade --install balvibot helm/balvibot
+--namespace balvibot --create-namespace`. On each install/upgrade the
 `api-migrate` Job runs `api migrate up` against Postgres to apply schema
 migrations before the services serve traffic.
 
@@ -103,15 +103,15 @@ the MCP bearer token, and the IMAP credentials — shared by the `api`,
 CA stays stable across helm upgrades. To rotate, delete the Secret and re-run:
 
 ```sh
-kubectl -n philanthropy-os delete secret iron-proxy-ca
+kubectl -n balvibot delete secret iron-proxy-ca
 just bootstrap-iron-proxy-ca
-kubectl -n philanthropy-os rollout restart deploy/hermes-agent
+kubectl -n balvibot rollout restart deploy/hermes-agent
 ```
 
 The hermes-agent pod renders `/opt/data/config.yaml` from
 `hermesAgent.config` (in `values.yaml`) via an init container on every start,
 so no `hermes-agent setup` is needed — the pod boots ready. The gateway API is
-reachable at `hermes-agent.philanthropy-os.svc.cluster.local:8642`.
+reachable at `hermes-agent.balvibot.svc.cluster.local:8642`.
 
 When `hermesAgent.api.enabled` is true (default), a single
 `mcp_servers.philos-api` entry is merged into the rendered config and the api
@@ -126,24 +126,24 @@ Drive sources (docs sync) all live in Postgres and are managed with the
 `api grantee` CLI. Run it inside the `api` pod, e.g.:
 
 ```sh
-POD=$(kubectl -n philanthropy-os get pod -l app.kubernetes.io/name=api -o name)
-kubectl -n philanthropy-os exec -it "$POD" -- api grantee create acme --name "Acme"
-kubectl -n philanthropy-os exec -it "$POD" -- api grantee add-email acme dev@acme.org
-kubectl -n philanthropy-os exec -it "$POD" -- api grantee authorize folder <drive-folder-id> --grantee acme
-kubectl -n philanthropy-os exec -it "$POD" -- api grantee list
+POD=$(kubectl -n balvibot get pod -l app.kubernetes.io/name=api -o name)
+kubectl -n balvibot exec -it "$POD" -- api grantee create acme --name "Acme"
+kubectl -n balvibot exec -it "$POD" -- api grantee add-email acme dev@acme.org
+kubectl -n balvibot exec -it "$POD" -- api grantee authorize folder <drive-folder-id> --grantee acme
+kubectl -n balvibot exec -it "$POD" -- api grantee list
 ```
 
 `pause`/`resume` toggle whether the gdocs sync loop processes a grantee;
 `revoke folder|doc` and `remove-email` undo the corresponding mappings.
 
-The agent's `SOUL.md` lives at `helm/philanthropy-os/SOUL.md` and ships in the
+The agent's `SOUL.md` lives at `helm/balvibot/SOUL.md` and ships in the
 `hermes-agent-config` ConfigMap, mounted read-only at `/opt/data/SOUL.md` via
 a `subPath` overlay so the agent cannot rewrite its own system prompt. Bump
 it by editing the file and redeploying — the `checksum/config` pod annotation
 rolls the pod automatically.
 
 Built-in hermes skills live under `docker/hermes-skills/skills/<skill>/SKILL.md`
-and ship as the `philanthropy-os/hermes-skills` image. The hermes-agent pod
+and ship as the `balvibot/hermes-skills` image. The hermes-agent pod
 pulls that image with an `init-skills` init container, unpacks `/skills/.`
 into a pod-local emptyDir, and mounts it read-only over
 `/opt/data/skills/<hermesAgent.skills.category>/` — an overlay over the PVC,
@@ -199,8 +199,8 @@ also need to bootstrap an `hermes-agent-secrets` that includes the real
 The bridge needs an interactive, one-time login. Credentials persist on the PVC.
 
 ```sh
-POD=$(kubectl -n philanthropy-os get pod -l app.kubernetes.io/name=protonmail-bridge -o name)
-kubectl -n philanthropy-os exec -it "$POD" -- /bin/bash
+POD=$(kubectl -n balvibot get pod -l app.kubernetes.io/name=protonmail-bridge -o name)
+kubectl -n balvibot exec -it "$POD" -- /bin/bash
 
 # inside the pod:
 bash /protonmail/entrypoint.sh init
@@ -212,7 +212,7 @@ exit
 Then restart the pod so it boots normally with the stored credentials:
 
 ```sh
-kubectl -n philanthropy-os delete "$POD"
+kubectl -n balvibot delete "$POD"
 ```
 
 ## signal-cli first-time device link
@@ -222,8 +222,8 @@ Signal account (you can also register a fresh number with `signal-cli register`
 + `verify`, but linking is faster and avoids burning an SMS code).
 
 ```sh
-POD=$(kubectl -n philanthropy-os get pod -l app.kubernetes.io/name=signal-cli -o name)
-kubectl -n philanthropy-os exec -it "$POD" -- \
+POD=$(kubectl -n balvibot get pod -l app.kubernetes.io/name=signal-cli -o name)
+kubectl -n balvibot exec -it "$POD" -- \
     signal-cli --config /data link -n "philos"
 ```
 
@@ -237,7 +237,7 @@ linked-account state to `/data` on the PVC. Restart the pod so the daemon boots
 with the new account:
 
 ```sh
-kubectl -n philanthropy-os delete "$POD"
+kubectl -n balvibot delete "$POD"
 ```
 
 Once linked, set `hermesAgent.signal.account` in `values.yaml` (or via `--set`)
@@ -249,9 +249,9 @@ SIGNAL_* env vars.
 From inside the cluster, point apps at:
 
 ```
-smtp-host: protonmail-bridge.philanthropy-os.svc.cluster.local
+smtp-host: protonmail-bridge.balvibot.svc.cluster.local
 smtp-port: 25
-imap-host: protonmail-bridge.philanthropy-os.svc.cluster.local
+imap-host: protonmail-bridge.balvibot.svc.cluster.local
 imap-port: 143
 ```
 

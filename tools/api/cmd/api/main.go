@@ -1,4 +1,4 @@
-// Command api is the consolidated philanthropy-os backend: a single binary
+// Command api is the consolidated balvibot backend: a single binary
 // that, via subcommands, runs the MCP server (serve), the IMAP mail indexer
 // (index-mail), the Google Docs sync loop (sync-gdocs), the Goose migrations
 // (migrate), and the grantee-admin CLI (grantee ...). All subcommands share
@@ -48,8 +48,8 @@ func main() {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "api",
-		Short:         "philanthropy-os consolidated backend (MCP + mail/docs indexers + grantee admin)",
-		Long:          "api is the single Postgres-backed service for philanthropy-os. Subcommands share DATABASE_URL.",
+		Short:         "balvibot consolidated backend (MCP + mail/docs indexers + grantee admin)",
+		Long:          "api is the single Postgres-backed service for balvibot. Subcommands share DATABASE_URL.",
 		SilenceUsage:  true,
 		SilenceErrors: false,
 	}

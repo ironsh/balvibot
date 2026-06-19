@@ -128,7 +128,7 @@ spec:
       # philos.signalCli.httpUrl helpers). With ndots:5, glibc walks the
       # search list before trying the absolute name, producing a cascade of
       # noisy passthrough-NXDOMAIN warnings in iron-proxy for queries like
-      # `signal-cli.philanthropy-os.svc.cluster.local.cluster.local`. ndots:1
+      # `signal-cli.balvibot.svc.cluster.local.cluster.local`. ndots:1
       # tries FQDNs absolute first and only falls back to the search list
       # for genuine short names (which we don't use here).
       dnsPolicy: None
