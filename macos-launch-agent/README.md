@@ -20,6 +20,52 @@ Install and start the LaunchAgent:
 
 The service listens on all interfaces through `--host 0.0.0.0`.
 
+## Remote k3s access over Tailscale
+
+For a remote k3s cluster, expose the Mac's `llama-server` endpoint through the
+Tailscale Kubernetes operator with an egress `ProxyGroup`. The Mac must be on
+the same Tailnet and its Tailnet DNS name should replace
+`your-mac-hostname.tailnet-name.ts.net` below.
+
+```yaml
+apiVersion: tailscale.com/v1alpha1
+kind: Tailnet
+metadata:
+  name: balvi
+spec:
+  credentials:
+    secretName: tailnet-balvi-oauth
+---
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyGroup
+metadata:
+  name: egress-balvibot
+spec:
+  type: egress
+  replicas: 1
+  tailnet: balvi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: balvibot-llama
+  namespace: balvibot
+  annotations:
+    tailscale.com/tailnet-fqdn: your-mac-hostname.tailnet-name.ts.net
+    tailscale.com/proxy-group: egress-balvibot
+spec:
+  type: ExternalName
+  externalName: placeholder
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+```
+
+After applying the resources, workloads in the `balvibot` namespace can reach
+the Mac-hosted server at `http://balvibot-llama.balvibot.svc.cluster.local:8080`.
+The Tailscale operator overwrites the placeholder `externalName`.
+
 Useful commands:
 
 ```sh
