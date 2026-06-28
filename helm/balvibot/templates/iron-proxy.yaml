@@ -1,4 +1,5 @@
 {{- $ip := .Values.ironProxy -}}
+{{- $modelEgress := .Values.hermesAgent.customModelEgress -}}
 {{- if $ip.enabled -}}
 {{- /*
 iron-proxy runs as a dedicated pod (not a sidecar) so its egress can be
@@ -57,6 +58,11 @@ data:
           domains:
           {{- range $ip.allowedDomains }}
             - {{ . | quote }}
+          {{- end }}
+          {{- if and $modelEgress.enabled $modelEgress.allowedDomains }}
+          {{- range $modelEgress.allowedDomains }}
+            - {{ . | quote }}
+          {{- end }}
           {{- end }}
 
       - name: secrets

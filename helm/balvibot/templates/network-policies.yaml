@@ -41,19 +41,11 @@ spec:
           port: {{ $ip.ports.http }}
         - protocol: TCP
           port: {{ $ip.ports.https }}
-    {{- if and $modelEgress.enabled $modelEgress.cidrs $modelEgress.ports }}
-    # Custom model endpoint. NetworkPolicy cannot match DNS names, so these
-    # CIDRs must cover the host/IP in hermesAgent.config.model.base_url.
-    - to:
-        {{- range $cidr := $modelEgress.cidrs }}
-        - ipBlock:
-            cidr: {{ $cidr | quote }}
-        {{- end }}
-      ports:
-        {{- range $port := $modelEgress.ports }}
-        - protocol: TCP
-          port: {{ $port }}
-        {{- end }}
+    {{- if and $modelEgress.enabled $modelEgress.networkPolicyEgress }}
+    # Custom model endpoint direct paths. These are raw NetworkPolicy egress
+    # entries so deployments can target an egress gateway, selected service
+    # pods, or IP-backed external endpoints.
+    {{- toYaml $modelEgress.networkPolicyEgress | nindent 4 }}
     {{- end }}
     # api MCP (grantees + mail + docs tools). Plain HTTP, in-cluster only.
     - to:

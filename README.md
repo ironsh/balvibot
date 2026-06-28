@@ -114,21 +114,41 @@ so no `hermes-agent setup` is needed — the pod boots ready. The gateway API is
 reachable at `hermes-agent.balvibot.svc.cluster.local:8642`.
 
 The default model config uses Hermes' `custom` provider and points at a local
-OpenAI-compatible llama.cpp endpoint. Override the model or endpoint through
-Helm values, for example:
+OpenAI-compatible llama.cpp endpoint. Override the model endpoint through Helm
+values. For a hostname that should flow through iron-proxy, add the hostname
+to the custom model allowlist:
 
-```sh
-helm upgrade --install balvibot ./helm/balvibot \
-  -n balvibot \
-  --set hermesAgent.config.model.default=Qwen3.5-9B-Q4_K_M.gguf \
-  --set hermesAgent.config.model.base_url=http://192.168.1.10:8080/v1 \
-  --set 'hermesAgent.customModelEgress.cidrs[0]=192.168.1.10/32' \
-  --set 'hermesAgent.customModelEgress.ports[0]=8080'
+```yaml
+hermesAgent:
+  config:
+    model:
+      base_url: https://llm.example.com/v1
+  customModelEgress:
+    allowedDomains:
+      - llm.example.com
 ```
 
-Kubernetes NetworkPolicy allows direct egress by CIDR, not hostname. When
-`ironProxy.enabled` is true, set `hermesAgent.customModelEgress.cidrs` to the
-IP range that serves the custom model endpoint.
+For a direct path to an egress gateway, service pods, or an IP-backed external
+endpoint, add raw Kubernetes NetworkPolicy egress rules:
+
+```yaml
+hermesAgent:
+  config:
+    model:
+      base_url: http://llama-server.models.svc.cluster.local:8080/v1
+  customModelEgress:
+    networkPolicyEgress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: models
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: llama-server
+        ports:
+          - protocol: TCP
+            port: 8080
+```
 
 When `hermesAgent.api.enabled` is true (default), a single
 `mcp_servers.balvibot-api` entry is merged into the rendered config and the api

@@ -243,15 +243,13 @@ hermesAgent:
       api_key: ""
       api_mode: chat_completions
       context_length: 131072
-  # Extra direct egress for a custom model endpoint. NetworkPolicy only
-  # supports CIDRs, not hostnames, so set cidrs to the IP range that serves
-  # hermesAgent.config.model.base_url. Leave empty when the endpoint should
-  # still flow through iron-proxy.
+  # Extra access for a custom model endpoint. Use allowedDomains for hostnames
+  # that should flow through iron-proxy. Use networkPolicyEgress for direct
+  # routes to an egress gateway, service pods, or IP-backed external endpoint.
   customModelEgress:
     enabled: true
-    cidrs: []
-    ports:
-      - 8080
+    allowedDomains: []
+    networkPolicyEgress: []
   # api MCP integration. When enabled, an mcp_servers.balvibot-api entry is
   # merged into the rendered config.yaml, and BALVIBOT_API_MCP_URL /
   # BALVIBOT_API_MCP_TOKEN are injected so hermes resolves them at runtime. This
