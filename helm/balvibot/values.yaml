@@ -258,13 +258,12 @@ hermesAgent:
   api:
     enabled: true
   # Chart-bundled built-in hermes skills. The hermes-skills image is a tiny
-  # busybox-based bundle whose contents are copied by an init container into
-  # an emptyDir and then mounted read-only over /opt/data/skills/<category>/
-  # in the main container — an overlay over the PVC, so user/agent-authored
-  # skills in other categories remain writable.
+  # busybox-based bundle whose contents are synced by an init container into
+  # /opt/data/skills/<category>/ on the PVC. The directory stays writable so
+  # Hermes can patch bundled skills or create new ones with skill_manage.
   skills:
     enabled: true
-    category: philanthropy
+    category: balvibot
     image:
       repository: balvibot/hermes-skills
       tag: 0.3.0

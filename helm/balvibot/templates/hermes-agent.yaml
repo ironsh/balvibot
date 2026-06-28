@@ -160,21 +160,19 @@ spec:
               mountPath: /mnt/config
               readOnly: true
         {{- if $skills.enabled }}
-        # Copy the hermes-skills image's /skills/ tree into a pod-local
-        # emptyDir, which the main container mounts read-only over
-        # /opt/data/skills/{{ $skills.category }}/ as an overlay over the PVC.
-        # The chart owns that category subtree; user/agent-authored skills in
-        # other categories on the PVC remain writable.
+        # Sync the hermes-skills image's /skills/ tree into the PVC. Keep the
+        # category writable so Hermes can patch bundled skills and create new
+        # skills via skill_manage at runtime.
         - name: init-skills
           image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" $skills.image) }}"
           imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" $skills.image "default" $.Values.imagePullPolicy) }}
           command:
             - sh
             - -euc
-            - cp -a /skills/. /mnt/skills/
+            - mkdir -p /opt/data/skills/{{ $skills.category }} && cp -a /skills/. /opt/data/skills/{{ $skills.category }}/
           volumeMounts:
-            - name: skills
-              mountPath: /mnt/skills
+            - name: data
+              mountPath: /opt/data
         {{- end }}
       containers:
         - name: hermes-agent
@@ -261,14 +259,6 @@ spec:
               mountPath: /opt/data/SOUL.md
               subPath: SOUL.md
               readOnly: true
-            {{- if $skills.enabled }}
-            # Overlay over /opt/data/skills/<category>/. Mounting deeper than
-            # the `data` mount shadows that subpath in the PVC; readOnly so
-            # the agent can't mutate chart-bundled skills.
-            - name: skills
-              mountPath: /opt/data/skills/{{ $skills.category }}
-              readOnly: true
-            {{- end }}
             {{- if $ip.enabled }}
             # CA cert only — never mount ca.key into the hermes container.
             - name: iron-proxy-ca
@@ -285,10 +275,6 @@ spec:
         - name: config
           configMap:
             name: hermes-agent-config
-        {{- if $skills.enabled }}
-        - name: skills
-          emptyDir: {}
-        {{- end }}
         {{- if $ip.enabled }}
         - name: iron-proxy-ca
           secret:

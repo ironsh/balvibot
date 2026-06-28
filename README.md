@@ -24,8 +24,8 @@ Kubernetes manifests for the balvibot services, packaged as a Helm chart.
   send and receive Signal messages.
 - **hermes-skills** — locally built busybox-based bundle of chart-built-in
   hermes skills (see `docker/hermes-skills/skills/`). Pulled by an init
-  container in the hermes-agent pod and mounted read-only as an overlay over
-  `/opt/data/skills/<category>/`.
+  container in the hermes-agent pod and synced into
+  `/opt/data/skills/balvibot/` on the Hermes PVC.
 - **iron-proxy** — [`ironsh/iron-proxy`](https://docs.iron.sh) egress firewall,
   run as a dedicated pod (Deployment + Service with a pinned ClusterIP).
   Hermes-agent's `dnsConfig` is overridden to use iron-proxy as its sole
@@ -180,12 +180,12 @@ rolls the pod automatically.
 
 Built-in hermes skills live under `docker/hermes-skills/skills/<skill>/SKILL.md`
 and ship as the `balvibot/hermes-skills` image. The hermes-agent pod
-pulls that image with an `init-skills` init container, unpacks `/skills/.`
-into a pod-local emptyDir, and mounts it read-only over
-`/opt/data/skills/<hermesAgent.skills.category>/` — an overlay over the PVC,
-so user/agent-authored skills in other categories remain writable. Roll the
-skill bundle by bumping `hermesAgent.skills.image.tag` in `values.yaml` and
-running `just build-hermes-skills upload-hermes-skills deploy`.
+pulls that image with an `init-skills` init container and syncs `/skills/.`
+into `/opt/data/skills/<hermesAgent.skills.category>/` on the PVC. The default
+category is `balvibot`, and it stays writable so Hermes can patch bundled
+skills or create new balvibot skills at runtime. Roll the skill bundle by
+bumping `hermesAgent.skills.image.tag` in `values.yaml` and running
+`just build-hermes-skills upload-hermes-skills deploy`.
 
 ## iron-proxy egress firewall
 
