@@ -20,6 +20,12 @@ Install and start the LaunchAgent:
 
 The service listens on all interfaces through `--host 0.0.0.0`.
 
+Hermes must point at this same endpoint through
+`hermesAgent.config.model.base_url`. The default chart value is
+`http://host.docker.internal:8080/v1`; override it in
+`helm/balvibot/values.local.yaml` if your cluster reaches the Mac through a
+different hostname, Service, or egress gateway.
+
 Useful commands:
 
 ```sh

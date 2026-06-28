@@ -109,17 +109,46 @@ kubectl -n balvibot rollout restart deploy/hermes-agent
 
 The hermes-agent pod renders `/opt/data/config.yaml` from
 `hermesAgent.config` (in `values.yaml`) via an init container on every start,
-so no `hermes-agent setup` is needed — the pod boots ready. The gateway API is
+so no `hermes-agent setup` is needed. The pod boots ready. The gateway API is
 reachable at `hermes-agent.balvibot.svc.cluster.local:8642`.
 
-The default model config uses Hermes' `custom` provider and points at a local
-OpenAI-compatible llama.cpp endpoint. Override the model endpoint through Helm
-values. The chart also sets `HERMES_STREAM_READ_TIMEOUT=1800` and
+## Hermes Local Model Configuration
+
+Hermes is configured through `hermesAgent.config` in Helm values. The chart
+uses Hermes' `custom` provider and expects an OpenAI-compatible chat
+completions endpoint, such as `llama-server` at `/v1`.
+
+The committed default is:
+
+```yaml
+hermesAgent:
+  config:
+    model:
+      provider: custom
+      default: Qwen3.5-9B-Q4_K_M.gguf
+      base_url: http://host.docker.internal:8080/v1
+      api_key: ""
+      api_mode: chat_completions
+      context_length: 131072
+```
+
+Override `base_url`, `default`, and `context_length` in
+`helm/balvibot/values.local.yaml` for your environment. Keep
+`context_length` at or below the context window used by the model server.
+
+The chart also sets `HERMES_STREAM_READ_TIMEOUT=1800` and
 `HERMES_STREAM_STALE_TIMEOUT=1800` so cluster-routed local LLM endpoints get
 the same long stream budget Hermes normally applies to localhost and LAN URLs.
 
-For a hostname that should flow through iron-proxy, add the hostname to the
-custom model allowlist:
+If the model runs on the Mac host, install the LaunchAgent in
+`macos-launch-agent/`. It starts `llama-server` on port `8080` with the Qwen
+GGUF model used by the default Hermes config.
+
+`base_url` only configures the Hermes model client. When iron-proxy is enabled,
+the same endpoint also needs an allowed egress path.
+
+If the model endpoint is a hostname and should flow through iron-proxy, add
+the hostname to the custom model allowlist:
 
 ```yaml
 hermesAgent:
@@ -131,7 +160,7 @@ hermesAgent:
       - llm.example.com
 ```
 
-For a direct path to an egress gateway, service pods, or an IP-backed external
+If the model endpoint is a Kubernetes Service, egress gateway, or IP-backed
 endpoint, add raw Kubernetes NetworkPolicy egress rules:
 
 ```yaml
@@ -152,6 +181,47 @@ hermesAgent:
           - protocol: TCP
             port: 8080
 ```
+
+When iron-proxy is enabled, the model endpoint must be reachable through one of
+those two paths. Use `customModelEgress.allowedDomains` for proxied hostnames.
+Use `customModelEgress.networkPolicyEgress` for direct pod, service, gateway,
+or IP routes.
+
+### Local Model Over Tailscale
+
+If the model runs on a Mac or workstation reachable only through Tailscale,
+expose it to the cluster through a Tailscale egress gateway or proxy, then point
+Hermes at the in-cluster Service that fronts that path.
+
+The model server still needs to listen on an address the Tailscale path can
+reach. The LaunchAgent in `macos-launch-agent/` starts `llama-server` with
+`--host 0.0.0.0`, so it can accept connections from the Tailscale interface.
+
+Example override:
+
+```yaml
+hermesAgent:
+  config:
+    model:
+      base_url: http://balvibot-llama.balvibot.svc.cluster.local:8080/v1
+  customModelEgress:
+    networkPolicyEgress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: tailscale
+            podSelector:
+              matchLabels:
+                tailscale.com/parent-resource: egress-balvibot
+                tailscale.com/parent-resource-type: proxygroup
+        ports:
+          - protocol: TCP
+            port: 8080
+```
+
+Adjust the namespace, pod labels, Service name, and port to match your
+Tailscale setup. If your Tailscale gateway also needs a control or sidecar port
+for forwarding, include that port in the same `networkPolicyEgress` entry.
 
 When `hermesAgent.api.enabled` is true (default), a single
 `mcp_servers.balvibot-api` entry is merged into the rendered config and the api
@@ -255,7 +325,7 @@ Then restart the pod so it boots normally with the stored credentials:
 kubectl -n balvibot delete "$POD"
 ```
 
-## signal-cli first-time device link
+## Signal Configuration
 
 The daemon ships with no account. Link it as a secondary device of an existing
 Signal account (you can also register a fresh number with `signal-cli register`
@@ -280,9 +350,43 @@ with the new account:
 kubectl -n balvibot delete "$POD"
 ```
 
-Once linked, set `hermesAgent.signal.account` in `values.yaml` (or via `--set`)
-to the linked phone number in E.164 form and redeploy so hermes picks up the
-SIGNAL_* env vars.
+Once linked, configure Hermes with the same linked phone number in E.164 form.
+When `hermesAgent.signal.account` is empty, the chart does not emit `SIGNAL_*`
+environment variables and Hermes runs without Signal.
+
+```yaml
+hermesAgent:
+  signal:
+    account: "+15551234567"
+    allowedUsers: "+15557654321,+15559876543"
+    groupAllowedUsers: "GROUP_ID_1,GROUP_ID_2"
+    homeChannel: "GROUP_ID_1"
+    requireMention: true
+```
+
+`allowedUsers` controls which direct-message senders Hermes accepts. Leave it
+empty to defer to Hermes' default behavior.
+
+`groupAllowedUsers` controls which Signal groups Hermes accepts. Use a
+comma-separated list of group IDs, or `*` for every group. Leave it empty to
+disable group handling.
+
+`homeChannel` is the default Signal group or destination for scheduled jobs and
+proactive messages.
+
+`requireMention` makes group messages require an explicit mention before Hermes
+responds. The custom Hermes image in this repo includes the group mention fix
+needed for this setting.
+
+To find group IDs after linking, run `listGroups` against the linked account:
+
+```sh
+kubectl -n balvibot exec -it "$POD" -- \
+    signal-cli -d /data -a +15551234567 listGroups
+```
+
+After changing Signal values, redeploy with `just deploy` so the hermes-agent
+pod picks up the rendered environment variables.
 
 ## Connecting
 
