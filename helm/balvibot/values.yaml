@@ -233,10 +233,23 @@ hermesAgent:
   # Rendered verbatim into /opt/data/config.yaml on every pod start by an init
   # container, so the agent boots ready-to-go (no `hermes-agent setup` needed).
   # Secrets (API keys) are injected via envFrom -> hermes-agent-secrets.
+  # Hermes no longer uses LLM_MODEL for model selection. The model stanza below
+  # is the runtime source of truth and may be overridden with Helm values.
   config:
     model:
-      provider: anthropic
-      default: claude-opus-4-7
+      provider: custom
+      default: Qwen3.5-9B-Q4_K_M.gguf
+      base_url: http://host.docker.internal:8080/v1
+      api_key: ""
+      api_mode: chat_completions
+      context_length: 131072
+  # Extra access for a custom model endpoint. Use allowedDomains for hostnames
+  # that should flow through iron-proxy. Use networkPolicyEgress for direct
+  # routes to an egress gateway, service pods, or IP-backed external endpoint.
+  customModelEgress:
+    enabled: true
+    allowedDomains: []
+    networkPolicyEgress: []
   # api MCP integration. When enabled, an mcp_servers.balvibot-api entry is
   # merged into the rendered config.yaml, and BALVIBOT_API_MCP_URL /
   # BALVIBOT_API_MCP_TOKEN are injected so hermes resolves them at runtime. This

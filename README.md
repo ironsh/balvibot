@@ -113,6 +113,43 @@ The hermes-agent pod renders `/opt/data/config.yaml` from
 so no `hermes-agent setup` is needed — the pod boots ready. The gateway API is
 reachable at `hermes-agent.balvibot.svc.cluster.local:8642`.
 
+The default model config uses Hermes' `custom` provider and points at a local
+OpenAI-compatible llama.cpp endpoint. Override the model endpoint through Helm
+values. For a hostname that should flow through iron-proxy, add the hostname
+to the custom model allowlist:
+
+```yaml
+hermesAgent:
+  config:
+    model:
+      base_url: https://llm.example.com/v1
+  customModelEgress:
+    allowedDomains:
+      - llm.example.com
+```
+
+For a direct path to an egress gateway, service pods, or an IP-backed external
+endpoint, add raw Kubernetes NetworkPolicy egress rules:
+
+```yaml
+hermesAgent:
+  config:
+    model:
+      base_url: http://llama-server.models.svc.cluster.local:8080/v1
+  customModelEgress:
+    networkPolicyEgress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: models
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: llama-server
+        ports:
+          - protocol: TCP
+            port: 8080
+```
+
 When `hermesAgent.api.enabled` is true (default), a single
 `mcp_servers.balvibot-api` entry is merged into the rendered config and the api
 MCP URL + bearer token are exposed as `BALVIBOT_API_MCP_URL` /

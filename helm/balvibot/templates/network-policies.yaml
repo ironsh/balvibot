@@ -1,4 +1,5 @@
 {{- $ip := .Values.ironProxy -}}
+{{- $modelEgress := .Values.hermesAgent.customModelEgress -}}
 {{- if $ip.enabled -}}
 {{- /*
 NetworkPolicies that close the loop on the iron-proxy egress firewall.
@@ -40,6 +41,12 @@ spec:
           port: {{ $ip.ports.http }}
         - protocol: TCP
           port: {{ $ip.ports.https }}
+    {{- if and $modelEgress.enabled $modelEgress.networkPolicyEgress }}
+    # Custom model endpoint direct paths. These are raw NetworkPolicy egress
+    # entries so deployments can target an egress gateway, selected service
+    # pods, or IP-backed external endpoints.
+    {{- toYaml $modelEgress.networkPolicyEgress | nindent 4 }}
+    {{- end }}
     # api MCP (grantees + mail + docs tools). Plain HTTP, in-cluster only.
     - to:
         - podSelector:
