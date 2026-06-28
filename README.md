@@ -121,8 +121,14 @@ Helm values, for example:
 helm upgrade --install balvibot ./helm/balvibot \
   -n balvibot \
   --set hermesAgent.config.model.default=Qwen3.5-9B-Q4_K_M.gguf \
-  --set hermesAgent.config.model.base_url=http://192.168.1.10:8080/v1
+  --set hermesAgent.config.model.base_url=http://192.168.1.10:8080/v1 \
+  --set 'hermesAgent.customModelEgress.cidrs[0]=192.168.1.10/32' \
+  --set 'hermesAgent.customModelEgress.ports[0]=8080'
 ```
+
+Kubernetes NetworkPolicy allows direct egress by CIDR, not hostname. When
+`ironProxy.enabled` is true, set `hermesAgent.customModelEgress.cidrs` to the
+IP range that serves the custom model endpoint.
 
 When `hermesAgent.api.enabled` is true (default), a single
 `mcp_servers.balvibot-api` entry is merged into the rendered config and the api

@@ -1,4 +1,5 @@
 {{- $ip := .Values.ironProxy -}}
+{{- $modelEgress := .Values.hermesAgent.customModelEgress -}}
 {{- if $ip.enabled -}}
 {{- /*
 NetworkPolicies that close the loop on the iron-proxy egress firewall.
@@ -40,6 +41,20 @@ spec:
           port: {{ $ip.ports.http }}
         - protocol: TCP
           port: {{ $ip.ports.https }}
+    {{- if and $modelEgress.enabled $modelEgress.cidrs $modelEgress.ports }}
+    # Custom model endpoint. NetworkPolicy cannot match DNS names, so these
+    # CIDRs must cover the host/IP in hermesAgent.config.model.base_url.
+    - to:
+        {{- range $cidr := $modelEgress.cidrs }}
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+        {{- end }}
+      ports:
+        {{- range $port := $modelEgress.ports }}
+        - protocol: TCP
+          port: {{ $port }}
+        {{- end }}
+    {{- end }}
     # api MCP (grantees + mail + docs tools). Plain HTTP, in-cluster only.
     - to:
         - podSelector:
