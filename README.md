@@ -19,9 +19,9 @@ Kubernetes manifests for the balvibot services, packaged as a Helm chart.
   and their authorized Drive sources are managed with the `api grantee` CLI.
 - **hermes-agent** — runs [`nousresearch/hermes-agent`](https://hermes-agent.nousresearch.com/docs/user-guide/docker)
   in gateway mode, exposing an OpenAI-compatible API (8642) and dashboard (9119).
-- **signal-cli** — locally built [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli)
-  image running the JSON-RPC HTTP daemon (8080) so cluster workloads can send
-  and receive Signal messages.
+- **signal-cli** — upstream [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli)
+  GHCR image running the JSON-RPC HTTP daemon (8080) so cluster workloads can
+  send and receive Signal messages.
 - **hermes-skills** — locally built busybox-based bundle of chart-built-in
   hermes skills (see `docker/hermes-skills/skills/`). Pulled by an init
   container in the hermes-agent pod and mounted read-only as an overlay over
@@ -55,7 +55,6 @@ Build the local images first (they're referenced by tag, not pulled):
 ```sh
 just build-protonmail-bridge
 just build-api
-just build-signal-cli
 just build-hermes-skills
 ```
 

@@ -1,7 +1,7 @@
 partOf: balvibot
 
 # Registry prefix prepended to every locally-built image (api, protonmail-bridge,
-# signal-cli, hermes-agent, hermes-skills). Empty here so the committed chart
+# hermes-agent, hermes-skills). Empty here so the committed chart
 # stays environment-agnostic and resolves these from the node's containerd store
 # as before. Set it in values.local.yaml (gitignored) to pull from the on-node
 # registry instead, matching the push target in the justfile, e.g.:
@@ -187,8 +187,9 @@ ironProxy:
 
 signalCli:
   image:
-    repository: balvibot/signal-cli
-    tag: 0.14.3
+    repository: ghcr.io/asamk/signal-cli
+    tag: 0.14.5-native
+    pullPolicy: IfNotPresent
   storage: 1Gi
   ports:
     http: 8080

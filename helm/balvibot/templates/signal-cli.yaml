@@ -49,8 +49,8 @@ spec:
     spec:
       containers:
         - name: signal-cli
-          image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.signalCli.image) }}"
-          imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.signalCli.image "default" $.Values.imagePullPolicy) }}
+          image: "{{ .Values.signalCli.image.repository }}:{{ .Values.signalCli.image.tag }}"
+          imagePullPolicy: {{ .Values.signalCli.image.pullPolicy }}
           # stdin/tty keep the container ready for interactive account flows
           # (`kubectl exec ... -- signal-cli register/verify`) before the
           # daemon has any registered numbers.
