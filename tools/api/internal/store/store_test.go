@@ -103,6 +103,45 @@ func TestThreadAndMessageDedup(t *testing.T) {
 	require.Equal(t, "us@org.test", recs[0].Email)
 }
 
+func TestAddGranteeEmailBackfillsExistingMail(t *testing.T) {
+	st, ctx := openTestStore(t)
+	require.NoError(t, st.EnsureGrantee(ctx, store.Grantee{GranteeID: "acme"}))
+
+	now := time.Now()
+	threadID, err := st.CreateThread(ctx, "root@x", "hello", nil, now)
+	require.NoError(t, err)
+	require.NotZero(t, threadID)
+
+	_, inserted, err := st.InsertMessage(ctx, &store.Message{
+		MessageID: "msg-1@x", ThreadID: threadID,
+		Folder: "INBOX", UID: 10, UIDValidity: 1,
+		From:      store.Address{Email: "sender@acme.org", Name: "Sender"},
+		To:        []store.Address{{Email: "us@org.test"}},
+		Subject:   "Hello there",
+		Date:      now,
+		BodyText:  "the body text",
+		SizeBytes: 123,
+	})
+	require.NoError(t, err)
+	require.True(t, inserted)
+
+	msg, _, _, err := st.GetMessage(ctx, "msg-1@x")
+	require.NoError(t, err)
+	require.Nil(t, msg.GranteeID)
+
+	require.NoError(t, st.AddGranteeEmail(ctx, "acme", "Sender@Acme.org"))
+
+	msg, _, _, err = st.GetMessage(ctx, "msg-1@x")
+	require.NoError(t, err)
+	require.NotNil(t, msg.GranteeID)
+	require.Equal(t, "acme", *msg.GranteeID)
+
+	thread, err := st.GetThread(ctx, threadID)
+	require.NoError(t, err)
+	require.NotNil(t, thread.GranteeID)
+	require.Equal(t, "acme", *thread.GranteeID)
+}
+
 func TestDocsUpsertAndGet(t *testing.T) {
 	st, ctx := openTestStore(t)
 	require.NoError(t, st.EnsureGrantee(ctx, store.Grantee{GranteeID: "acme"}))
