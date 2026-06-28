@@ -51,7 +51,7 @@ spec:
         - name: signal-cli
           image: "{{ .Values.signalCli.image.repository }}:{{ .Values.signalCli.image.tag }}"
           imagePullPolicy: {{ .Values.signalCli.image.pullPolicy }}
-          args: ["--config", "/data", "daemon", "--http", "0.0.0.0:{{ .Values.signalCli.ports.http }}"]
+          args: ["-d", "/data", "daemon", "--http", "0.0.0.0:{{ .Values.signalCli.ports.http }}"]
           # stdin/tty keep the container ready for interactive account flows
           # (`kubectl exec ... -- signal-cli register/verify`) before the
           # daemon has any registered numbers.

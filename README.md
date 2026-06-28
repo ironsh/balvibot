@@ -260,7 +260,7 @@ Signal account (you can also register a fresh number with `signal-cli register`
 ```sh
 POD=$(kubectl -n balvibot get pod -l app.kubernetes.io/name=signal-cli -o name)
 kubectl -n balvibot exec -it "$POD" -- \
-    signal-cli --config /data link -n "balvibot"
+    signal-cli -d /data link -n "balvibot"
 ```
 
 This prints a `sgnl://linkdevice?...` URI. On the phone that owns the Signal
