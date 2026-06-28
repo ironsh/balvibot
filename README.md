@@ -113,6 +113,17 @@ The hermes-agent pod renders `/opt/data/config.yaml` from
 so no `hermes-agent setup` is needed — the pod boots ready. The gateway API is
 reachable at `hermes-agent.balvibot.svc.cluster.local:8642`.
 
+The default model config uses Hermes' `custom` provider and points at a local
+OpenAI-compatible llama.cpp endpoint. Override the model or endpoint through
+Helm values, for example:
+
+```sh
+helm upgrade --install balvibot ./helm/balvibot \
+  -n balvibot \
+  --set hermesAgent.config.model.default=Qwen3.5-9B-Q4_K_M.gguf \
+  --set hermesAgent.config.model.base_url=http://192.168.1.10:8080/v1
+```
+
 When `hermesAgent.api.enabled` is true (default), a single
 `mcp_servers.balvibot-api` entry is merged into the rendered config and the api
 MCP URL + bearer token are exposed as `BALVIBOT_API_MCP_URL` /
