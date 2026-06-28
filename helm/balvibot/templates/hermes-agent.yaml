@@ -184,7 +184,7 @@ spec:
         - name: hermes-agent
           image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" .Values.hermesAgent.image) }}"
           imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" .Values.hermesAgent.image "default" $.Values.imagePullPolicy) }}
-          args: ["gateway", "run"]
+          args: ["gateway", "run", "-v"]
           ports:
             - name: gateway
               containerPort: {{ .Values.hermesAgent.ports.gateway }}
