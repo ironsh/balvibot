@@ -131,7 +131,7 @@ build-approve:
 
 # Build the hermes-skills image — a tiny busybox-based bundle of chart-built-in
 # hermes skills (see docker/hermes-skills/skills/). The hermes-agent pod uses
-# it as an init container to populate a read-only overlay mount.
+# it as an init container to populate the writable skills tree on the PVC.
 build-hermes-skills tag=hermes_skills_tag:
     @just _build "{{hermes_skills_image}}:{{tag}}" docker/hermes-skills/Dockerfile
 

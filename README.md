@@ -186,9 +186,9 @@ Built-in hermes skills live under `docker/hermes-skills/skills/<skill>/SKILL.md`
 and ship as the `balvibot/hermes-skills` image. The hermes-agent pod
 pulls that image with an `init-skills` init container and syncs `/skills/.`
 into `/opt/data/skills/<hermesAgent.skills.category>/` on the PVC. The default
-category is `balvibot`, and it stays writable so Hermes can patch bundled
-skills or create new balvibot skills at runtime. Roll the skill bundle by
-bumping `hermesAgent.skills.image.tag` in `values.yaml` and running
+category is `balvibot`; the whole `/opt/data/skills` tree stays writable so
+Hermes can patch bundled skills or create new skills at runtime. Roll the skill
+bundle by bumping `hermesAgent.skills.image.tag` in `values.yaml` and running
 `just build-hermes-skills upload-hermes-skills deploy`.
 
 ## iron-proxy egress firewall

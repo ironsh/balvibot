@@ -161,15 +161,21 @@ spec:
               readOnly: true
         {{- if $skills.enabled }}
         # Sync the hermes-skills image's /skills/ tree into the PVC. Keep the
-        # category writable so Hermes can patch bundled skills and create new
-        # skills via skill_manage at runtime.
+        # skills tree writable so Hermes can patch bundled skills and create
+        # new skills via skill_manage at runtime.
         - name: init-skills
           image: "{{ include "balvibot.image" (dict "registry" $.Values.imageRegistry "image" $skills.image) }}"
           imagePullPolicy: {{ include "balvibot.imagePullPolicy" (dict "image" $skills.image "default" $.Values.imagePullPolicy) }}
           command:
             - sh
             - -euc
-            - mkdir -p /opt/data/skills/{{ $skills.category }} && cp -a /skills/. /opt/data/skills/{{ $skills.category }}/
+            - |
+              category={{ $skills.category | quote }}
+              dest="/opt/data/skills/${category}"
+              mkdir -p "$dest"
+              chmod -R u+rwX,g+rwX,o+rwX /opt/data/skills
+              cp -a /skills/. "$dest/"
+              chmod -R u+rwX,g+rwX,o+rwX /opt/data/skills
           volumeMounts:
             - name: data
               mountPath: /opt/data
