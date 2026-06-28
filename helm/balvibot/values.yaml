@@ -230,6 +230,8 @@ hermesAgent:
     API_SERVER_HOST: "0.0.0.0"
     HERMES_DASHBOARD: "1"
     HERMES_DASHBOARD_INSECURE: "1"
+    HERMES_STREAM_READ_TIMEOUT: "1800"
+    HERMES_STREAM_STALE_TIMEOUT: "1800"
     GATEWAY_ALLOW_ALL_USERS: "true"
   # Rendered verbatim into /opt/data/config.yaml on every pod start by an init
   # container, so the agent boots ready-to-go (no `hermes-agent setup` needed).

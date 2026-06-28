@@ -114,8 +114,12 @@ reachable at `hermes-agent.balvibot.svc.cluster.local:8642`.
 
 The default model config uses Hermes' `custom` provider and points at a local
 OpenAI-compatible llama.cpp endpoint. Override the model endpoint through Helm
-values. For a hostname that should flow through iron-proxy, add the hostname
-to the custom model allowlist:
+values. The chart also sets `HERMES_STREAM_READ_TIMEOUT=1800` and
+`HERMES_STREAM_STALE_TIMEOUT=1800` so cluster-routed local LLM endpoints get
+the same long stream budget Hermes normally applies to localhost and LAN URLs.
+
+For a hostname that should flow through iron-proxy, add the hostname to the
+custom model allowlist:
 
 ```yaml
 hermesAgent:
