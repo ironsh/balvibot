@@ -47,11 +47,22 @@ spec:
       labels:
         {{- include "balvibot.labels" (dict "name" "signal-cli" "partOf" .Values.partOf) | nindent 8 }}
     spec:
+      initContainers:
+        - name: fix-data-permissions
+          image: "{{ .Values.signalCli.image.repository }}:{{ .Values.signalCli.image.tag }}"
+          imagePullPolicy: {{ .Values.signalCli.image.pullPolicy }}
+          command: ["sh", "-ec", "chown -R signal-cli:signal-cli /data"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /data
       containers:
         - name: signal-cli
           image: "{{ .Values.signalCli.image.repository }}:{{ .Values.signalCli.image.tag }}"
           imagePullPolicy: {{ .Values.signalCli.image.pullPolicy }}
-          args: ["-d", "/data", "daemon", "--http", "0.0.0.0:{{ .Values.signalCli.ports.http }}"]
+          command: ["/usr/bin/signal-cli"]
+          args: ["--config=/data", "daemon", "--http", "0.0.0.0:{{ .Values.signalCli.ports.http }}"]
           # stdin/tty keep the container ready for interactive account flows
           # (`kubectl exec ... -- signal-cli register/verify`) before the
           # daemon has any registered numbers.
