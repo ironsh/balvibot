@@ -9,12 +9,8 @@ protonmail_bridge_tag := protonmail_bridge_version
 api_image := "balvibot/api"
 api_tag := "0.1.0"
 
-signal_cli_version := "0.14.3"
-signal_cli_image := "balvibot/signal-cli"
-signal_cli_tag := signal_cli_version
-
 hermes_skills_image := "balvibot/hermes-skills"
-hermes_skills_tag := "0.2.0"
+hermes_skills_tag := "0.3.0"
 
 # Upstream hermes-agent release the custom image is built on. The local tag
 # encodes that base plus the require_mention patch (#36088) so a base bump or a
@@ -48,7 +44,7 @@ default:
 # missing, so re-running after a small code change transfers little. Make sure
 # values.local.yaml sets
 # `imageRegistry: {{registry}}` so the cluster pulls what was pushed.
-up: bootstrap-secrets bootstrap-iron-proxy-ca ship-protonmail-bridge ship-api ship-signal-cli ship-hermes-skills ship-hermes-agent deploy
+up: bootstrap-secrets bootstrap-iron-proxy-ca ship-protonmail-bridge ship-api ship-hermes-skills ship-hermes-agent deploy
 
 # Install/upgrade the helm release. Grantees are managed via the `api grantee`
 # CLI against Postgres (not a file), so there's nothing to inject here.
@@ -133,15 +129,6 @@ build-approve:
     @cd tools/api && go build -trimpath -ldflags="-s -w" -o ../../dist/balvi-approve ./cmd/approve
     @echo "built dist/balvi-approve"
 
-# Build the signal-cli image. The Dockerfile pulls the pinned upstream tarball
-# from github.com/AsamK/signal-cli at build time.
-build-signal-cli version=signal_cli_version tag=signal_cli_tag:
-    @just _build "{{signal_cli_image}}:{{tag}}" docker/signal-cli/Dockerfile --build-arg version={{version}}
-
-# Push the locally built signal-cli image to the on-node registry.
-upload-signal-cli tag=signal_cli_tag:
-    @just _upload "{{signal_cli_image}}:{{tag}}"
-
 # Build the hermes-skills image — a tiny busybox-based bundle of chart-built-in
 # hermes skills (see docker/hermes-skills/skills/). The hermes-agent pod uses
 # it as an init container to populate a read-only overlay mount.
@@ -168,9 +155,6 @@ ship-protonmail-bridge:
 
 ship-api:
     @just _ship "{{api_image}}:{{api_tag}}" build-api
-
-ship-signal-cli:
-    @just _ship "{{signal_cli_image}}:{{signal_cli_tag}}" build-signal-cli
 
 ship-hermes-skills:
     @just _ship "{{hermes_skills_image}}:{{hermes_skills_tag}}" build-hermes-skills

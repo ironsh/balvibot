@@ -184,11 +184,40 @@ func (s *Store) AddGranteeEmail(ctx context.Context, granteeID, email string) er
 	if granteeID == "" || email == "" {
 		return errors.New("grantee_id and email required")
 	}
-	_, err := s.exec(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, rebind(`
 		INSERT INTO grantee_emails(email, grantee_id) VALUES(?, ?)
 		ON CONFLICT(email) DO UPDATE SET grantee_id = excluded.grantee_id
-	`, email, granteeID)
-	return err
+	`), email, granteeID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, rebind(`
+		UPDATE threads t
+		SET grantee_id = ?
+		WHERE t.grantee_id IS NULL
+		  AND EXISTS (
+		    SELECT 1 FROM messages m
+		    WHERE m.thread_id = t.id AND m.from_addr = ?
+		  )
+	`), granteeID, email); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, rebind(`
+		UPDATE messages
+		SET grantee_id = ?
+		WHERE grantee_id IS NULL
+		  AND thread_id IN (
+		    SELECT id FROM threads WHERE grantee_id = ?
+		  )
+	`), granteeID, granteeID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) RemoveGranteeEmail(ctx context.Context, granteeID, email string) error {

@@ -19,13 +19,13 @@ Kubernetes manifests for the balvibot services, packaged as a Helm chart.
   and their authorized Drive sources are managed with the `api grantee` CLI.
 - **hermes-agent** — runs [`nousresearch/hermes-agent`](https://hermes-agent.nousresearch.com/docs/user-guide/docker)
   in gateway mode, exposing an OpenAI-compatible API (8642) and dashboard (9119).
-- **signal-cli** — locally built [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli)
-  image running the JSON-RPC HTTP daemon (8080) so cluster workloads can send
-  and receive Signal messages.
+- **signal-cli** — upstream [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli)
+  GHCR image running the JSON-RPC HTTP daemon (8080) so cluster workloads can
+  send and receive Signal messages.
 - **hermes-skills** — locally built busybox-based bundle of chart-built-in
   hermes skills (see `docker/hermes-skills/skills/`). Pulled by an init
-  container in the hermes-agent pod and mounted read-only as an overlay over
-  `/opt/data/skills/<category>/`.
+  container in the hermes-agent pod and synced into
+  `/opt/data/skills/balvibot/` on the Hermes PVC.
 - **iron-proxy** — [`ironsh/iron-proxy`](https://docs.iron.sh) egress firewall,
   run as a dedicated pod (Deployment + Service with a pinned ClusterIP).
   Hermes-agent's `dnsConfig` is overridden to use iron-proxy as its sole
@@ -55,7 +55,6 @@ Build the local images first (they're referenced by tag, not pulled):
 ```sh
 just build-protonmail-bridge
 just build-api
-just build-signal-cli
 just build-hermes-skills
 ```
 
@@ -115,8 +114,12 @@ reachable at `hermes-agent.balvibot.svc.cluster.local:8642`.
 
 The default model config uses Hermes' `custom` provider and points at a local
 OpenAI-compatible llama.cpp endpoint. Override the model endpoint through Helm
-values. For a hostname that should flow through iron-proxy, add the hostname
-to the custom model allowlist:
+values. The chart also sets `HERMES_STREAM_READ_TIMEOUT=1800` and
+`HERMES_STREAM_STALE_TIMEOUT=1800` so cluster-routed local LLM endpoints get
+the same long stream budget Hermes normally applies to localhost and LAN URLs.
+
+For a hostname that should flow through iron-proxy, add the hostname to the
+custom model allowlist:
 
 ```yaml
 hermesAgent:
@@ -181,12 +184,12 @@ rolls the pod automatically.
 
 Built-in hermes skills live under `docker/hermes-skills/skills/<skill>/SKILL.md`
 and ship as the `balvibot/hermes-skills` image. The hermes-agent pod
-pulls that image with an `init-skills` init container, unpacks `/skills/.`
-into a pod-local emptyDir, and mounts it read-only over
-`/opt/data/skills/<hermesAgent.skills.category>/` — an overlay over the PVC,
-so user/agent-authored skills in other categories remain writable. Roll the
-skill bundle by bumping `hermesAgent.skills.image.tag` in `values.yaml` and
-running `just build-hermes-skills upload-hermes-skills deploy`.
+pulls that image with an `init-skills` init container and syncs `/skills/.`
+into `/opt/data/skills/<hermesAgent.skills.category>/` on the PVC. The default
+category is `balvibot`, and it stays writable so Hermes can patch bundled
+skills or create new balvibot skills at runtime. Roll the skill bundle by
+bumping `hermesAgent.skills.image.tag` in `values.yaml` and running
+`just build-hermes-skills upload-hermes-skills deploy`.
 
 ## iron-proxy egress firewall
 
@@ -261,7 +264,7 @@ Signal account (you can also register a fresh number with `signal-cli register`
 ```sh
 POD=$(kubectl -n balvibot get pod -l app.kubernetes.io/name=signal-cli -o name)
 kubectl -n balvibot exec -it "$POD" -- \
-    signal-cli --config /data link -n "balvibot"
+    signal-cli -d /data link -n "balvibot"
 ```
 
 This prints a `sgnl://linkdevice?...` URI. On the phone that owns the Signal

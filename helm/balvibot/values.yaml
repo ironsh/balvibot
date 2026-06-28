@@ -1,7 +1,7 @@
 partOf: balvibot
 
 # Registry prefix prepended to every locally-built image (api, protonmail-bridge,
-# signal-cli, hermes-agent, hermes-skills). Empty here so the committed chart
+# hermes-agent, hermes-skills). Empty here so the committed chart
 # stays environment-agnostic and resolves these from the node's containerd store
 # as before. Set it in values.local.yaml (gitignored) to pull from the on-node
 # registry instead, matching the push target in the justfile, e.g.:
@@ -187,8 +187,9 @@ ironProxy:
 
 signalCli:
   image:
-    repository: balvibot/signal-cli
-    tag: 0.14.3
+    repository: ghcr.io/asamk/signal-cli
+    tag: 0.14.5-native
+    pullPolicy: IfNotPresent
   storage: 1Gi
   ports:
     http: 8080
@@ -229,6 +230,8 @@ hermesAgent:
     API_SERVER_HOST: "0.0.0.0"
     HERMES_DASHBOARD: "1"
     HERMES_DASHBOARD_INSECURE: "1"
+    HERMES_STREAM_READ_TIMEOUT: "1800"
+    HERMES_STREAM_STALE_TIMEOUT: "1800"
     GATEWAY_ALLOW_ALL_USERS: "true"
   # Rendered verbatim into /opt/data/config.yaml on every pod start by an init
   # container, so the agent boots ready-to-go (no `hermes-agent setup` needed).
@@ -257,16 +260,15 @@ hermesAgent:
   api:
     enabled: true
   # Chart-bundled built-in hermes skills. The hermes-skills image is a tiny
-  # busybox-based bundle whose contents are copied by an init container into
-  # an emptyDir and then mounted read-only over /opt/data/skills/<category>/
-  # in the main container — an overlay over the PVC, so user/agent-authored
-  # skills in other categories remain writable.
+  # busybox-based bundle whose contents are synced by an init container into
+  # /opt/data/skills/<category>/ on the PVC. The directory stays writable so
+  # Hermes can patch bundled skills or create new ones with skill_manage.
   skills:
     enabled: true
-    category: philanthropy
+    category: balvibot
     image:
       repository: balvibot/hermes-skills
-      tag: 0.2.0
+      tag: 0.3.0
   # Signal integration. Leave `account` empty to disable: when unset, no
   # SIGNAL_* env vars are emitted and hermes runs without a Signal dependency.
   # SIGNAL_HTTP_URL is derived from the in-cluster signal-cli Service.
