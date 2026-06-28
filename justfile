@@ -10,7 +10,7 @@ api_image := "balvibot/api"
 api_tag := "0.1.0"
 
 hermes_skills_image := "balvibot/hermes-skills"
-hermes_skills_tag := "0.2.0"
+hermes_skills_tag := "0.3.0"
 
 # Upstream hermes-agent release the custom image is built on. The local tag
 # encodes that base plus the require_mention patch (#36088) so a base bump or a

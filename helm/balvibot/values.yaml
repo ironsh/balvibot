@@ -267,7 +267,7 @@ hermesAgent:
     category: philanthropy
     image:
       repository: balvibot/hermes-skills
-      tag: 0.2.0
+      tag: 0.3.0
   # Signal integration. Leave `account` empty to disable: when unset, no
   # SIGNAL_* env vars are emitted and hermes runs without a Signal dependency.
   # SIGNAL_HTTP_URL is derived from the in-cluster signal-cli Service.
